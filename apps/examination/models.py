@@ -65,6 +65,12 @@ class Question(models.Model):
         ('essay', '简答题'),
         ('true_false', '判断题'),
     )
+    
+    QUESTION_DIFFICULTY = (
+        ('easy', '简单'),
+        ('medium', '中等'),
+        ('hard', '困难'),
+    )
 
     exam = models.ForeignKey(
         Exam,
@@ -76,6 +82,12 @@ class Question(models.Model):
         max_length=20,
         choices=QUESTION_TYPES,
         verbose_name="题目类型"
+    )
+    difficulty = models.CharField(
+        max_length=10,
+        choices=QUESTION_DIFFICULTY,
+        default='medium',
+        verbose_name="难度"
     )
     question_text = models.TextField(verbose_name="题目内容")
     points = models.IntegerField(
@@ -292,6 +304,12 @@ class StudentExam(models.Model):
 
 class ExamAnswer(models.Model):
     """Student answers to exam questions"""
+    GRADING_STATUS = (
+        ('pending', '待评分'),
+        ('graded', '已评分'),
+        ('needs_review', '需人工复核'),
+    )
+
     student_exam = models.ForeignKey(
         StudentExam,
         on_delete=models.CASCADE,
@@ -317,6 +335,12 @@ class ExamAnswer(models.Model):
         null=True,
         blank=True,
         verbose_name="是否正确"
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=GRADING_STATUS,
+        default='pending',
+        verbose_name="评分状态"
     )
     graded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -355,6 +379,7 @@ class ExamAnswer(models.Model):
             else:
                 self.is_correct = False
                 self.points_awarded = 0
+            self.status = 'graded'
 
         # True/False grading
         elif isinstance(specific_question, TrueFalseQuestion):
@@ -370,10 +395,14 @@ class ExamAnswer(models.Model):
                 else:
                     self.is_correct = False
                     self.points_awarded = 0
+                self.status = 'graded'
+
+        # Essay questions require manual grading
+        elif isinstance(specific_question, EssayQuestion):
+            self.status = 'needs_review'
 
         # Code questions will be graded by code executor (handled in views)
-        # Essay questions require manual grading
-
+        
         self.save()
 
 

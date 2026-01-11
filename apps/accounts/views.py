@@ -9,7 +9,7 @@ from datetime import timedelta
 from .models import User, StudentProfile
 from apps.learning.models import Enrollment, LessonProgress
 from apps.training.models import Submission
-# from apps.examination.models import ExamAttempt  # TODO: Implement Examination models
+from apps.examination.models import StudentExam
 
 
 def register_view(request):
@@ -156,6 +156,11 @@ def dashboard_view(request):
         ).count()
         context['total_submissions'] = total_submissions
         context['passed_submissions'] = passed_submissions
+
+        # Get exam statistics
+        exam_attempts = StudentExam.objects.filter(student=request.user, is_submitted=True)
+        context['exams_taken'] = exam_attempts.count()
+        context['exams_passed'] = sum(1 for attempt in exam_attempts if attempt.is_passing())
 
         # Calculate completion stats
         completed_lessons = LessonProgress.objects.filter(

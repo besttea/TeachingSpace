@@ -266,12 +266,14 @@ def submit_exam(request):
                             answer.is_correct = False
 
                         answer.feedback = result.get('message', '')
+                        answer.status = 'graded'
                         answer.save()
 
                     except Exception as e:
                         answer.points_awarded = 0
                         answer.is_correct = False
                         answer.feedback = f'代码执行错误: {str(e)}'
+                        answer.status = 'graded'
                         answer.save()
 
         # Calculate total score
