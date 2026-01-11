@@ -56,22 +56,21 @@ class Command(BaseCommand):
         else:
             self.stdout.write(f'Using existing course: {course.title}')
 
-        # Determine Chapter Title from Content (First H1) or Filename
-        chapter_title = os.path.splitext(os.path.basename(file_path))[0]
-        # Try to find H1 in first few cells
-        for i in range(min(5, len(notebook_data.get('cells', [])))):
-            cell = notebook_data['cells'][i]
+        # Determine Chapter Title from Content
+        chapter_title = "Chapter 1" # Default
+        # Scan for "第*章" pattern
+        for cell in notebook_data.get('cells', []):
             if cell.get('cell_type') == 'markdown':
                 source_text = ''.join(cell.get('source', [])).strip()
-                # Check for HTML H1
-                h1_match = re.search(r'<h1[^>]*>(.*?)</h1>', source_text, re.IGNORECASE)
+                # Check for HTML H1 containing 第*章
+                h1_match = re.search(r'<h1[^>]*>.*(第.+章.*)</h1>', source_text, re.IGNORECASE)
                 if h1_match:
                     chapter_title = h1_match.group(1).strip()
                     break
-                # Check for Markdown H1
-                md_h1_match = re.match(r'^#\s+(.*)', source_text)
-                if md_h1_match:
-                    chapter_title = md_h1_match.group(1).strip()
+                # Check for Markdown headers containing 第*章
+                md_match = re.search(r'^#{1,3}\s+.*(第.+章.*)', source_text, re.MULTILINE)
+                if md_match:
+                    chapter_title = md_match.group(1).strip()
                     break
 
         # Create Chapter
@@ -85,69 +84,49 @@ class Command(BaseCommand):
         # Process Cells
         cells = notebook_data.get('cells', [])
         
-        # We need a default lesson if the file doesn't start with a header
-        # Or we can treat the Chapter Title as the first Lesson Title
-        current_lesson = None
+        # Create an initial lesson for intro content (before 1.1)
+        current_lesson, _ = Lesson.objects.get_or_create(
+            chapter=chapter,
+            title="Introduction",
+            defaults={
+                'order': 0,
+                'status': 'published',
+                'created_by': instructor
+            }
+        )
+        
         lesson_order = 1
         cell_order = 1
-        
-        # Initial scan to see if first cell is a header
-        first_cell_is_header = False
-        if cells:
-            first_cell = cells[0]
-            if first_cell.get('cell_type') == 'markdown':
-                src = ''.join(first_cell.get('source', [])).strip()
-                if re.match(r'^(#{1,3})\s+(.*)', src) or re.match(r'^(#{1,3})[^#]', src):
-                     first_cell_is_header = True
-
-        if not first_cell_is_header:
-            # Create a "Overview" lesson or use Chapter title
-            current_lesson, _ = Lesson.objects.get_or_create(
-                chapter=chapter,
-                title="Introduction", # Default if no header
-                defaults={
-                    'order': 0,
-                    'status': 'published',
-                    'created_by': instructor
-                }
-            )
 
         for cell in cells:
             cell_type = cell.get('cell_type')
             source_lines = cell.get('source', [])
             source_text = ''.join(source_lines) if isinstance(source_lines, list) else source_lines
 
-            # Check for Section Headers in Markdown to start new Lesson
-            # We treat H1, H2, H3 as Lesson delimiters to strictly follow content structure
+            # Check for Section Headers 1.x to start new Lesson
             is_new_lesson = False
             lesson_title = ""
 
             if cell_type == 'markdown':
-                # Iterate through lines to find a header at the START of the cell
-                # If a cell starts with a header, it's a new lesson.
-                # If a header is in the middle, we might split? 
-                # For simplicity and robustness, we assume headers starting a section are usually at the start of a cell in notebooks.
-                # But we can also check line by line if we want to split cells (complex).
-                # Let's stick to "Cell starting with Header starts a new Lesson".
-                
-                # Check first line for header
                 lines = source_text.strip().split('\n')
-                if lines:
-                    first_line = lines[0].strip()
-                    # Match #, ##, ###
-                    match = re.match(r'^(#{1,3})\s+(.*)', first_line)
+                # Iterate through lines to find the header
+                for line in lines:
+                    line = line.strip()
+                    # Match headers that start with "1.x " (e.g., "### 1.1 数字常量")
+                    # Exclude 1.5.1 (Level 3 numbering)
+                    # Regex: start with #s, whitespace, then "1.", then digits, then space or end of line.
+                    match = re.match(r'^(#{1,6})\s+(1\.\d+\s+.*)', line)
                     if match:
                         lesson_title = match.group(2).strip()
-                        # If title is empty (just ###), use placeholder
-                        if not lesson_title:
-                            lesson_title = f"Section {lesson_order}"
                         is_new_lesson = True
+                        break # Found the header for this cell
                     else:
-                        # Check for HTML headers <h1>, <h2>, <h3>
-                        html_match = re.match(r'^<h[1-3][^>]*>(.*?)</h[1-3]>', first_line, re.IGNORECASE)
+                        # Also check HTML headers if they contain "1.x "
+                        html_match = re.match(r'^<h[1-6][^>]*>\s*(1\.\d+\s+.*)</h[1-6]>', line, re.IGNORECASE)
                         if html_match:
                             lesson_title = html_match.group(1).strip()
                             is_new_lesson = True
+                            break
 
             if is_new_lesson:
                 # Create new lesson
@@ -167,18 +146,6 @@ class Command(BaseCommand):
                     self.stdout.write(f'Using existing lesson: {lesson_title}')
                 
                 cell_order = 1 # Reset cell order for new lesson
-            
-            # If still no current lesson (e.g. first cell was not header and we skipped default), create one now
-            if not current_lesson:
-                 current_lesson, _ = Lesson.objects.get_or_create(
-                    chapter=chapter,
-                    title="Introduction",
-                    defaults={
-                        'order': 0,
-                        'status': 'published',
-                        'created_by': instructor
-                    }
-                )
 
             # Prepare Cell Data
             db_cell_type = 'text'
