@@ -1,0 +1,151 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Coding Exercises - Python Learning{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1 class="mb-3">
+                <i class="bi bi-code-slash"></i> Coding Exercises
+            </h1>
+            <p class="lead text-muted">Practice Python programming with hands-on challenges</p>
+        </div>
+        <div class="col-md-4 text-end">
+            {% if user.is_staff %}
+            <a href="{% url 'admin:training_exercise_add' %}" class="btn btn-primary">
+                <i class="bi bi-plus-circle"></i> Create Exercise
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Filter and Search -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="get" class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Difficulty Level</label>
+                    <select name="difficulty" class="form-select" onchange="this.form.submit()">
+                        <option value="">All Levels</option>
+                        <option value="beginner" {% if request.GET.difficulty == 'beginner' %}selected{% endif %}>Beginner</option>
+                        <option value="intermediate" {% if request.GET.difficulty == 'intermediate' %}selected{% endif %}>Intermediate</option>
+                        <option value="advanced" {% if request.GET.difficulty == 'advanced' %}selected{% endif %}>Advanced</option>
+                    </select>
+                </div>
+                <div class="col-md-7">
+                    <label class="form-label">Search Exercises</label>
+                    <input type="text" name="search" class="form-control" placeholder="Search by title..." value="{{ request.GET.search }}">
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-search"></i> Search
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Exercises Grid -->
+    <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+        {% for exercise in exercises %}
+        <div class="col">
+            <div class="card h-100 shadow-sm hover-shadow">
+                <div class="card-body d-flex flex-column">
+                    <div class="mb-3">
+                        <span class="badge bg-{% if exercise.difficulty == 'beginner' %}success{% elif exercise.difficulty == 'intermediate' %}warning{% else %}danger{% endif %} me-2">
+                            {{ exercise.get_difficulty_display }}
+                        </span>
+                        <span class="badge bg-primary">
+                            <i class="bi bi-star"></i> {{ exercise.points }} pts
+                        </span>
+                        {% if user.is_authenticated and exercise.id in completed_exercises %}
+                        <span class="badge bg-success">
+                            <i class="bi bi-check-circle-fill"></i> Completed
+                        </span>
+                        {% endif %}
+                    </div>
+
+                    <h5 class="card-title">{{ exercise.title }}</h5>
+                    <p class="card-text text-muted flex-grow-1">
+                        {{ exercise.description|truncatewords:20 }}
+                    </p>
+
+                    <div class="mt-auto">
+                        <!-- Statistics -->
+                        <div class="d-flex justify-content-between text-muted small mb-3">
+                            <span>
+                                <i class="bi bi-people"></i> {{ exercise.total_submissions }} attempts
+                            </span>
+                            <span>
+                                <i class="bi bi-graph-up"></i> {{ exercise.success_rate }}% pass rate
+                            </span>
+                        </div>
+
+                        <a href="{% url 'training:exercise-detail' slug=exercise.slug %}" class="btn btn-primary w-100">
+                            <i class="bi bi-play-circle"></i> Start Challenge
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% empty %}
+        <div class="col-12">
+            <div class="alert alert-info text-center">
+                <i class="bi bi-info-circle"></i> No exercises found matching your criteria.
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Pagination -->
+    {% if is_paginated %}
+    <nav aria-label="Page navigation" class="mt-4">
+        <ul class="pagination justify-content-center">
+            {% if page_obj.has_previous %}
+            <li class="page-item">
+                <a class="page-link" href="?page=1{% if request.GET.difficulty %}&difficulty={{ request.GET.difficulty }}{% endif %}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}">
+                    First
+                </a>
+            </li>
+            <li class="page-item">
+                <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if request.GET.difficulty %}&difficulty={{ request.GET.difficulty }}{% endif %}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}">
+                    Previous
+                </a>
+            </li>
+            {% endif %}
+
+            <li class="page-item active">
+                <span class="page-link">
+                    Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+                </span>
+            </li>
+
+            {% if page_obj.has_next %}
+            <li class="page-item">
+                <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if request.GET.difficulty %}&difficulty={{ request.GET.difficulty }}{% endif %}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}">
+                    Next
+                </a>
+            </li>
+            <li class="page-item">
+                <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}{% if request.GET.difficulty %}&difficulty={{ request.GET.difficulty }}{% endif %}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}">
+                    Last
+                </a>
+            </li>
+            {% endif %}
+        </ul>
+    </nav>
+    {% endif %}
+</div>
+
+<style>
+.hover-shadow {
+    transition: box-shadow 0.3s ease;
+}
+
+.hover-shadow:hover {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+}
+</style>
+{% endblock %}

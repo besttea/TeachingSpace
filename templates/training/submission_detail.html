@@ -1,0 +1,156 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Submission Details - Python Learning{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'training:exercise-list' %}">Exercises</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'training:exercise-detail' slug=submission.exercise.slug %}">{{ submission.exercise.title }}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'training:submission-history' slug=submission.exercise.slug %}">History</a></li>
+            <li class="breadcrumb-item active">Submission #{{ submission.id }}</li>
+        </ol>
+    </nav>
+
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1 class="mb-3">
+                <i class="bi bi-file-code"></i> Submission #{{ submission.id }}
+            </h1>
+            <h4 class="text-muted">{{ submission.exercise.title }}</h4>
+        </div>
+        <div class="col-md-4 text-end">
+            <a href="{% url 'training:submission-history' slug=submission.exercise.slug %}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back to History
+            </a>
+        </div>
+    </div>
+
+    <!-- Status Card -->
+    <div class="card mb-4 shadow-sm">
+        <div class="card-body">
+            <div class="row text-center">
+                <div class="col-md-3">
+                    <h6 class="text-muted">Status</h6>
+                    <span class="badge bg-{% if submission.status == 'passed' %}success{% elif submission.status == 'failed' %}danger{% else %}secondary{% endif %} fs-6">
+                        {{ submission.get_status_display }}
+                    </span>
+                </div>
+                <div class="col-md-3">
+                    <h6 class="text-muted">Tests Passed</h6>
+                    <h4>{{ submission.tests_passed }}/{{ submission.tests_total }}</h4>
+                </div>
+                <div class="col-md-3">
+                    <h6 class="text-muted">Points Awarded</h6>
+                    <h4 class="{% if submission.points_awarded > 0 %}text-success{% else %}text-muted{% endif %}">
+                        {{ submission.points_awarded }}
+                    </h4>
+                </div>
+                <div class="col-md-3">
+                    <h6 class="text-muted">Execution Time</h6>
+                    <h4>
+                        {% if submission.execution_time_ms %}
+                        {{ submission.execution_time_ms }}ms
+                        {% else %}
+                        -
+                        {% endif %}
+                    </h4>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Submitted Code -->
+        <div class="col-lg-6 mb-4">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="bi bi-code-square"></i> Your Code</h5>
+                </div>
+                <div class="card-body p-0">
+                    <pre style="background: #282c34; color: #abb2bf; padding: 1rem; margin: 0; border-radius: 0 0 8px 8px; max-height: 500px; overflow-y: auto;"><code class="language-python">{{ submission.code }}</code></pre>
+                </div>
+            </div>
+        </div>
+
+        <!-- Output and Results -->
+        <div class="col-lg-6 mb-4">
+            <!-- Output -->
+            {% if submission.output %}
+            <div class="card shadow-sm mb-3">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="bi bi-terminal"></i> Output</h5>
+                </div>
+                <div class="card-body">
+                    <pre style="background: #f8f9fa; padding: 1rem; border-radius: 4px; max-height: 300px; overflow-y: auto; font-family: 'Courier New', monospace; white-space: pre-wrap;">{{ submission.output }}</pre>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Error Message -->
+            {% if submission.error_message %}
+            <div class="card shadow-sm mb-3 border-danger">
+                <div class="card-header bg-danger text-white">
+                    <h5 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Error</h5>
+                </div>
+                <div class="card-body">
+                    <pre style="color: #dc3545; font-family: 'Courier New', monospace; white-space: pre-wrap; margin: 0;">{{ submission.error_message }}</pre>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Metadata -->
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="bi bi-info-circle"></i> Details</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-6 mb-3">
+                            <small class="text-muted">Submitted</small>
+                            <p class="mb-0">{{ submission.submitted_at|date:"Y-m-d H:i:s" }}</p>
+                        </div>
+                        <div class="col-6 mb-3">
+                            <small class="text-muted">Hints Used</small>
+                            <p class="mb-0">{{ submission.hints_used }}</p>
+                        </div>
+                        <div class="col-6 mb-3">
+                            <small class="text-muted">Exercise Difficulty</small>
+                            <p class="mb-0">
+                                <span class="badge bg-{% if submission.exercise.difficulty == 'beginner' %}success{% elif submission.exercise.difficulty == 'intermediate' %}warning{% else %}danger{% endif %}">
+                                    {{ submission.exercise.get_difficulty_display }}
+                                </span>
+                            </p>
+                        </div>
+                        <div class="col-6 mb-3">
+                            <small class="text-muted">Maximum Points</small>
+                            <p class="mb-0">{{ submission.exercise.points }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="d-flex gap-2 justify-content-center mt-4">
+        <a href="{% url 'training:exercise-detail' slug=submission.exercise.slug %}" class="btn btn-primary">
+            <i class="bi bi-arrow-repeat"></i> Try Again
+        </a>
+        <a href="{% url 'training:exercise-list' %}" class="btn btn-outline-secondary">
+            <i class="bi bi-list"></i> Browse More Exercises
+        </a>
+    </div>
+</div>
+
+<!-- Syntax Highlighting -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof Prism !== 'undefined') {
+        Prism.highlightAll();
+    }
+});
+</script>
+{% endblock %}

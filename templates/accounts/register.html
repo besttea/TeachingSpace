@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Register - Python Learning{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card shadow">
+                <div class="card-body p-5">
+                    <div class="text-center mb-4">
+                        <i class="bi bi-person-plus-fill text-primary" style="font-size: 3rem;"></i>
+                        <h2 class="mt-3">Create Account</h2>
+                        <p class="text-muted">Join our Python learning community</p>
+                    </div>
+
+                    <form method="post">
+                        {% csrf_token %}
+
+                        <div class="mb-3">
+                            <label for="username" class="form-label">Username *</label>
+                            <input type="text" class="form-control" id="username" name="username" required>
+                            <small class="form-text text-muted">Choose a unique username</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="email" class="form-label">Email Address *</label>
+                            <input type="email" class="form-control" id="email" name="email" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="password" class="form-label">Password *</label>
+                            <input type="password" class="form-control" id="password" name="password" required minlength="8">
+                            <small class="form-text text-muted">Must be at least 8 characters</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="password_confirm" class="form-label">Confirm Password *</label>
+                            <input type="password" class="form-control" id="password_confirm" name="password_confirm" required minlength="8">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="user_type" class="form-label">I am a *</label>
+                            <select class="form-select" id="user_type" name="user_type" required onchange="toggleStudentFields()">
+                                <option value="student" selected>Student</option>
+                                <option value="instructor">Instructor</option>
+                            </select>
+                        </div>
+
+                        <div id="student-fields">
+                            <div class="mb-3">
+                                <label for="python_experience" class="form-label">Python Experience</label>
+                                <select class="form-select" id="python_experience" name="python_experience">
+                                    <option value="beginner" selected>Beginner - Just starting out</option>
+                                    <option value="intermediate">Intermediate - Some experience</option>
+                                    <option value="advanced">Advanced - Very experienced</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="d-grid gap-2 mt-4">
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <i class="bi bi-person-plus"></i> Create Account
+                            </button>
+                        </div>
+                    </form>
+
+                    <div class="text-center mt-4">
+                        <p class="text-muted">
+                            Already have an account?
+                            <a href="{% url 'accounts:login' %}">Login here</a>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function toggleStudentFields() {
+    const userType = document.getElementById('user_type').value;
+    const studentFields = document.getElementById('student-fields');
+
+    if (userType === 'student') {
+        studentFields.style.display = 'block';
+    } else {
+        studentFields.style.display = 'none';
+    }
+}
+</script>
+{% endblock %}

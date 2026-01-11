@@ -1,0 +1,337 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Dashboard - Python Learning{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <!-- Welcome Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="mb-2">
+                <i class="bi bi-speedometer2"></i> Welcome back, {{ user.get_full_name|default:user.username }}!
+            </h1>
+            <p class="text-muted">
+                {% if user.user_type == 'student' %}
+                Your learning dashboard
+                {% elif user.user_type == 'instructor' %}
+                Your teaching dashboard
+                {% else %}
+                Administrator dashboard
+                {% endif %}
+            </p>
+        </div>
+    </div>
+
+    {% if user.user_type == 'student' %}
+    <!-- Student Dashboard -->
+
+    <!-- Statistics Cards -->
+    <div class="row g-4 mb-4">
+        <div class="col-md-3">
+            <div class="card bg-primary text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title text-white-50">Enrolled Courses</h6>
+                            <h2 class="mb-0">{{ total_courses|default:0 }}</h2>
+                        </div>
+                        <i class="bi bi-book" style="font-size: 2.5rem; opacity: 0.5;"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title text-white-50">Lessons Completed</h6>
+                            <h2 class="mb-0">{{ completed_lessons|default:0 }}</h2>
+                        </div>
+                        <i class="bi bi-check-circle" style="font-size: 2.5rem; opacity: 0.5;"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card bg-warning text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title text-white-50">Total Points</h6>
+                            <h2 class="mb-0">{{ profile.total_points|default:0 }}</h2>
+                        </div>
+                        <i class="bi bi-star" style="font-size: 2.5rem; opacity: 0.5;"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card bg-info text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title text-white-50">Current Streak</h6>
+                            <h2 class="mb-0">{{ profile.current_streak_days|default:0 }} days</h2>
+                        </div>
+                        <i class="bi bi-fire" style="font-size: 2.5rem; opacity: 0.5;"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content Row -->
+    <div class="row g-4">
+        <!-- My Courses -->
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-book"></i> My Courses</h5>
+                    <a href="{% url 'learning:course-list' %}" class="btn btn-sm btn-primary">Browse Courses</a>
+                </div>
+                <div class="card-body">
+                    {% if enrollments %}
+                    <div class="list-group list-group-flush">
+                        {% for enrollment in enrollments %}
+                        <a href="{% url 'learning:course-detail' slug=enrollment.course.slug %}" class="list-group-item list-group-item-action">
+                            <div class="d-flex w-100 justify-content-between align-items-center">
+                                <div class="flex-grow-1">
+                                    <h6 class="mb-1">{{ enrollment.course.title }}</h6>
+                                    <small class="text-muted">{{ enrollment.course.get_difficulty_level_display }}</small>
+                                </div>
+                                <div class="text-end ms-3">
+                                    <div class="progress" style="width: 150px; height: 8px;">
+                                        <div class="progress-bar" role="progressbar"
+                                             style="width: {{ enrollment.progress_percentage }}%"
+                                             aria-valuenow="{{ enrollment.progress_percentage }}"
+                                             aria-valuemin="0"
+                                             aria-valuemax="100">
+                                        </div>
+                                    </div>
+                                    <small class="text-muted">{{ enrollment.progress_percentage|floatformat:0 }}% complete</small>
+                                </div>
+                            </div>
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-center py-4">
+                        <i class="bi bi-inbox text-muted" style="font-size: 3rem;"></i>
+                        <p class="text-muted mt-3">You haven't enrolled in any courses yet.</p>
+                        <a href="{% url 'learning:course-list' %}" class="btn btn-primary">Browse Courses</a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Recent Activity -->
+            <div class="card shadow-sm mt-4">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="bi bi-clock-history"></i> Recent Activity</h5>
+                </div>
+                <div class="card-body">
+                    {% if recent_lessons %}
+                    <div class="list-group list-group-flush">
+                        {% for progress in recent_lessons %}
+                        <a href="{% url 'learning:lesson-detail' pk=progress.lesson.id %}" class="list-group-item list-group-item-action">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <h6 class="mb-1">{{ progress.lesson.title }}</h6>
+                                    <small class="text-muted">
+                                        {{ progress.lesson.chapter.course.title }}
+                                    </small>
+                                </div>
+                                <div class="text-end">
+                                    {% if progress.is_completed %}
+                                    <span class="badge bg-success"><i class="bi bi-check-circle"></i> Completed</span>
+                                    {% else %}
+                                    <span class="badge bg-warning"><i class="bi bi-clock"></i> In Progress</span>
+                                    {% endif %}
+                                    <br>
+                                    <small class="text-muted">{{ progress.last_accessed|timesince }} ago</small>
+                                </div>
+                            </div>
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-muted text-center">No recent activity</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            <!-- Profile Card -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-body text-center">
+                    {% if user.profile_picture %}
+                    <img src="{{ user.profile_picture.url }}" alt="Profile" class="rounded-circle mb-3" style="width: 100px; height: 100px; object-fit: cover;">
+                    {% else %}
+                    <div class="bg-primary bg-opacity-10 rounded-circle d-inline-flex p-4 mb-3">
+                        <i class="bi bi-person-fill text-primary" style="font-size: 3rem;"></i>
+                    </div>
+                    {% endif %}
+                    <h5 class="mb-1">{{ user.get_full_name|default:user.username }}</h5>
+                    <p class="text-muted mb-3">{{ user.email }}</p>
+                    <p class="mb-3">
+                        <span class="badge bg-secondary">{{ profile.get_python_experience_display }}</span>
+                    </p>
+                    <a href="{% url 'accounts:profile' %}" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-pencil"></i> Edit Profile
+                    </a>
+                </div>
+            </div>
+
+            <!-- Exercise Stats -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white">
+                    <h6 class="mb-0"><i class="bi bi-code-slash"></i> Exercise Statistics</h6>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>Total Submissions:</span>
+                        <strong>{{ total_submissions|default:0 }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>Passed:</span>
+                        <strong class="text-success">{{ passed_submissions|default:0 }}</strong>
+                    </div>
+                    {% if total_submissions > 0 %}
+                    <div class="progress mt-3" style="height: 8px;">
+                        <div class="progress-bar bg-success"
+                             style="width: {% widthratio passed_submissions total_submissions 100 %}%">
+                        </div>
+                    </div>
+                    <small class="text-muted">
+                        {% widthratio passed_submissions total_submissions 100 %}% success rate
+                    </small>
+                    {% endif %}
+                    <a href="{% url 'training:exercise-list' %}" class="btn btn-outline-success btn-sm w-100 mt-3">
+                        <i class="bi bi-code-square"></i> Practice Exercises
+                    </a>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <h6 class="mb-0"><i class="bi bi-lightning"></i> Quick Actions</h6>
+                </div>
+                <div class="card-body">
+                    <div class="d-grid gap-2">
+                        <a href="{% url 'learning:course-list' %}" class="btn btn-outline-primary btn-sm">
+                            <i class="bi bi-book"></i> Browse Courses
+                        </a>
+                        <a href="{% url 'training:exercise-list' %}" class="btn btn-outline-success btn-sm">
+                            <i class="bi bi-code-slash"></i> Practice Exercises
+                        </a>
+                        <a href="#" class="btn btn-outline-warning btn-sm">
+                            <i class="bi bi-trophy"></i> Take Exam
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% elif user.user_type == 'instructor' %}
+    <!-- Instructor Dashboard -->
+
+    <div class="row g-4 mb-4">
+        <div class="col-md-4">
+            <div class="card bg-primary text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title text-white-50">Courses Teaching</h6>
+                            <h2 class="mb-0">{{ total_courses_taught|default:0 }}</h2>
+                        </div>
+                        <i class="bi bi-book" style="font-size: 2.5rem; opacity: 0.5;"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title text-white-50">Total Students</h6>
+                            <h2 class="mb-0">{{ total_students|default:0 }}</h2>
+                        </div>
+                        <i class="bi bi-people" style="font-size: 2.5rem; opacity: 0.5;"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- My Courses -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-book"></i> My Courses</h5>
+            {% if user.is_staff %}
+            <a href="{% url 'admin:learning_course_add' %}" class="btn btn-sm btn-primary">
+                <i class="bi bi-plus-circle"></i> Create Course
+            </a>
+            {% endif %}
+        </div>
+        <div class="card-body">
+            {% if courses_taught %}
+            <div class="list-group list-group-flush">
+                {% for course in courses_taught %}
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="mb-1">{{ course.title }}</h6>
+                            <small class="text-muted">
+                                {{ course.chapters.count }} chapters | {{ course.get_difficulty_level_display }}
+                            </small>
+                        </div>
+                        <div>
+                            <a href="{% url 'learning:course-detail' slug=course.slug %}" class="btn btn-sm btn-outline-primary">
+                                View
+                            </a>
+                            {% if user.is_staff %}
+                            <a href="{% url 'admin:learning_course_change' course.id %}" class="btn btn-sm btn-outline-secondary">
+                                Edit
+                            </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-center py-4">
+                <i class="bi bi-inbox text-muted" style="font-size: 3rem;"></i>
+                <p class="text-muted mt-3">You haven't created any courses yet.</p>
+                {% if user.is_staff %}
+                <a href="{% url 'admin:learning_course_add' %}" class="btn btn-primary">Create Your First Course</a>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {% else %}
+    <!-- Admin Dashboard -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-white">
+            <h5 class="mb-0"><i class="bi bi-gear"></i> Admin Panel</h5>
+        </div>
+        <div class="card-body">
+            <p>Access the <a href="{% url 'admin:index' %}">Django Admin</a> for full system management.</p>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

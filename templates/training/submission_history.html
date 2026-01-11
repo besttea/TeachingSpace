@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Submission History - {{ exercise.title }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'training:exercise-list' %}">Exercises</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'training:exercise-detail' slug=exercise.slug %}">{{ exercise.title }}</a></li>
+            <li class="breadcrumb-item active">Submission History</li>
+        </ol>
+    </nav>
+
+    <h1 class="mb-4">
+        <i class="bi bi-clock-history"></i> Submission History
+    </h1>
+
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h3>{{ exercise.title }}</h3>
+            <p class="text-muted">{{ exercise.description|truncatewords:30 }}</p>
+        </div>
+        <div class="col-md-4 text-end">
+            <a href="{% url 'training:exercise-detail' slug=exercise.slug %}" class="btn btn-primary">
+                <i class="bi bi-arrow-left"></i> Back to Exercise
+            </a>
+        </div>
+    </div>
+
+    {% if submissions %}
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead class="table-light">
+                <tr>
+                    <th>Submitted</th>
+                    <th>Status</th>
+                    <th>Tests Passed</th>
+                    <th>Points</th>
+                    <th>Execution Time</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for submission in submissions %}
+                <tr>
+                    <td>{{ submission.submitted_at|date:"Y-m-d H:i" }}</td>
+                    <td>
+                        <span class="badge bg-{% if submission.status == 'passed' %}success{% elif submission.status == 'failed' %}danger{% elif submission.status == 'pending' or submission.status == 'running' %}warning{% else %}secondary{% endif %}">
+                            {{ submission.get_status_display }}
+                        </span>
+                    </td>
+                    <td>
+                        {{ submission.tests_passed }}/{{ submission.tests_total }}
+                        {% if submission.tests_passed == submission.tests_total and submission.tests_total > 0 %}
+                        <i class="bi bi-check-circle-fill text-success"></i>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if submission.points_awarded > 0 %}
+                        <strong class="text-success">+{{ submission.points_awarded }}</strong>
+                        {% else %}
+                        <span class="text-muted">0</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if submission.execution_time_ms %}
+                        {{ submission.execution_time_ms }}ms
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{% url 'training:submission-detail' pk=submission.pk %}" class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-eye"></i> View Details
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="alert alert-info text-center">
+        <i class="bi bi-info-circle"></i> No submissions yet. Go back and start solving!
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,399 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ exercise.title }} - Python Learning{% endblock %}
+
+{% block extra_css %}
+<style>
+    .exercise-container {
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+
+    .code-editor-container {
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        background: #282c34;
+        min-height: 400px;
+    }
+
+    .code-editor {
+        width: 100%;
+        min-height: 400px;
+        padding: 1rem;
+        font-family: 'Courier New', Consolas, Monaco, monospace;
+        font-size: 14px;
+        background: #282c34;
+        color: #abb2bf;
+        border: none;
+        resize: vertical;
+    }
+
+    .code-editor:focus {
+        outline: none;
+    }
+
+    .output-panel {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 1rem;
+        min-height: 200px;
+        max-height: 400px;
+        overflow-y: auto;
+        font-family: 'Courier New', monospace;
+        font-size: 0.9rem;
+        white-space: pre-wrap;
+    }
+
+    .output-panel.success {
+        border-left: 4px solid #28a745;
+    }
+
+    .output-panel.error {
+        border-left: 4px solid #dc3545;
+        color: #dc3545;
+    }
+
+    .hint-card {
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .hint-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+
+    .hint-card.revealed {
+        background: #f8f9fa;
+    }
+
+    .submission-item {
+        border-left: 4px solid #6c757d;
+    }
+
+    .submission-item.passed {
+        border-left-color: #28a745;
+    }
+
+    .submission-item.failed {
+        border-left-color: #dc3545;
+    }
+
+    .submitting {
+        animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="exercise-container py-4">
+    <!-- Exercise Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'training:exercise-list' %}">Exercises</a></li>
+                    <li class="breadcrumb-item active">{{ exercise.title }}</li>
+                </ol>
+            </nav>
+
+            <div class="d-flex justify-content-between align-items-start mb-3">
+                <div>
+                    <h1 class="mb-2">{{ exercise.title }}</h1>
+                    <div>
+                        <span class="badge bg-{% if exercise.difficulty == 'beginner' %}success{% elif exercise.difficulty == 'intermediate' %}warning{% else %}danger{% endif %} me-2">
+                            {{ exercise.get_difficulty_display }}
+                        </span>
+                        <span class="badge bg-primary me-2">
+                            <i class="bi bi-star"></i> {{ exercise.points }} points
+                        </span>
+                        {% if best_submission %}
+                        <span class="badge bg-success">
+                            <i class="bi bi-check-circle-fill"></i> Completed
+                        </span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div>
+                    <a href="{% url 'training:submission-history' slug=exercise.slug %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-clock-history"></i> History
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row" x-data="exerciseEditor()">
+        <!-- Left Panel: Description and Hints -->
+        <div class="col-lg-5 mb-4">
+            <!-- Description -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="bi bi-file-text"></i> Problem Description</h5>
+                </div>
+                <div class="card-body">
+                    <div style="white-space: pre-wrap;">{{ exercise.description }}</div>
+                </div>
+            </div>
+
+            <!-- Hints -->
+            {% if hints %}
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="bi bi-lightbulb"></i> Hints ({{ hints.count }})</h5>
+                    <small class="text-muted">Viewing hints will deduct points from your score</small>
+                </div>
+                <div class="card-body">
+                    {% for hint in hints %}
+                    <div class="card hint-card mb-3 {% if hint.id in viewed_hints %}revealed{% endif %}"
+                         @click="viewHint({{ hint.id }})">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <strong>Hint #{{ forloop.counter }}</strong>
+                                <span class="badge bg-warning">
+                                    <i class="bi bi-dash-circle"></i> {{ hint.points_penalty }} pts
+                                </span>
+                            </div>
+                            <div x-show="revealedHints.includes({{ hint.id }})" class="mt-3">
+                                <p class="mb-0 text-muted" x-text="hintContents[{{ hint.id }}]">
+                                    {% if hint.id in viewed_hints %}
+                                    {{ hint.content }}
+                                    {% endif %}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Recent Submissions -->
+            {% if submissions %}
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="bi bi-list-check"></i> Recent Attempts</h5>
+                </div>
+                <div class="card-body">
+                    {% for submission in submissions|slice:":3" %}
+                    <div class="submission-item {{ submission.status }} card mb-2">
+                        <div class="card-body p-2">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="badge bg-{% if submission.status == 'passed' %}success{% elif submission.status == 'failed' %}danger{% else %}secondary{% endif %}">
+                                        {{ submission.get_status_display }}
+                                    </span>
+                                    <small class="text-muted ms-2">
+                                        {{ submission.tests_passed }}/{{ submission.tests_total }} tests
+                                    </small>
+                                </div>
+                                <small class="text-muted">{{ submission.submitted_at|timesince }} ago</small>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Right Panel: Code Editor and Output -->
+        <div class="col-lg-7">
+            <!-- Code Editor -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-code-square"></i> Your Solution</h5>
+                    <button class="btn btn-sm btn-secondary" @click="resetCode()">
+                        <i class="bi bi-arrow-counterclockwise"></i> Reset
+                    </button>
+                </div>
+                <div class="card-body p-0">
+                    <div class="code-editor-container">
+                        <textarea
+                            class="code-editor"
+                            x-model="code"
+                            placeholder="Write your Python code here..."
+                            spellcheck="false"></textarea>
+                    </div>
+                </div>
+                <div class="card-footer bg-white">
+                    <button
+                        class="btn btn-success btn-lg w-100"
+                        @click="submitCode()"
+                        :disabled="submitting"
+                        :class="{'submitting': submitting}">
+                        <span x-show="!submitting">
+                            <i class="bi bi-send"></i> Submit Solution
+                        </span>
+                        <span x-show="submitting">
+                            <i class="bi bi-hourglass-split"></i> Running Tests...
+                        </span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Output Panel -->
+            <div class="card shadow-sm" x-show="showOutput">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-terminal"></i> Test Results
+                        <span x-show="outputStatus === 'passed'" class="badge bg-success ms-2">
+                            <i class="bi bi-check-circle-fill"></i> All Tests Passed!
+                        </span>
+                        <span x-show="outputStatus === 'failed'" class="badge bg-danger ms-2">
+                            <i class="bi bi-x-circle-fill"></i> Some Tests Failed
+                        </span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="output-panel" :class="outputStatus" x-text="outputText"></div>
+
+                    <div x-show="outputStatus === 'passed'" class="mt-3">
+                        <div class="alert alert-success">
+                            <h5><i class="bi bi-trophy-fill"></i> Congratulations!</h5>
+                            <p class="mb-0">
+                                You've earned <strong x-text="pointsAwarded"></strong> points!
+                                <br>
+                                <small>Tests passed: <span x-text="testsPassed"></span>/<span x-text="testsTotal"></span> |
+                                Execution time: <span x-text="executionTime"></span>ms</small>
+                            </p>
+                        </div>
+                    </div>
+
+                    <div x-show="outputStatus === 'failed'" class="mt-3">
+                        <div class="alert alert-warning">
+                            <h5><i class="bi bi-exclamation-triangle"></i> Keep Trying!</h5>
+                            <p class="mb-0">
+                                Tests passed: <strong x-text="testsPassed"></strong>/<strong x-text="testsTotal"></strong>
+                                <br>
+                                <small>Review the output above and try again. Consider using hints if you're stuck!</small>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function exerciseEditor() {
+    return {
+        code: `{{ exercise.starter_code|escapejs }}`,
+        starterCode: `{{ exercise.starter_code|escapejs }}`,
+        submitting: false,
+        showOutput: false,
+        outputText: '',
+        outputStatus: '',
+        testsPassed: 0,
+        testsTotal: 0,
+        pointsAwarded: 0,
+        executionTime: 0,
+        revealedHints: {{ viewed_hints|default:"[]" }},
+        hintContents: {
+            {% for hint in hints %}
+            {% if hint.id in viewed_hints %}
+            {{ hint.id }}: `{{ hint.content|escapejs }}`,
+            {% endif %}
+            {% endfor %}
+        },
+
+        resetCode() {
+            if (confirm('Reset code to starter template? This will lose your current changes.')) {
+                this.code = this.starterCode;
+            }
+        },
+
+        async submitCode() {
+            if (!this.code.trim()) {
+                alert('Please write some code before submitting!');
+                return;
+            }
+
+            this.submitting = true;
+            this.showOutput = false;
+
+            try {
+                const response = await fetch('{% url "training:submit-solution" slug=exercise.slug %}', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrftoken,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ code: this.code })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    this.outputStatus = data.status;
+                    this.outputText = data.output || data.error_message || 'No output';
+                    this.testsPassed = data.tests_passed;
+                    this.testsTotal = data.tests_total;
+                    this.pointsAwarded = data.points_awarded;
+                    this.executionTime = data.execution_time_ms;
+                    this.showOutput = true;
+
+                    // Reload page after a short delay if passed
+                    if (data.status === 'passed') {
+                        setTimeout(() => {
+                            location.reload();
+                        }, 3000);
+                    }
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Failed to submit solution. Please try again.');
+            } finally {
+                this.submitting = false;
+            }
+        },
+
+        async viewHint(hintId) {
+            if (this.revealedHints.includes(hintId)) {
+                return; // Already revealed
+            }
+
+            if (!confirm('Viewing this hint will deduct points from your score. Continue?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/training/api/hints/${hintId}/view/`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrftoken,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    this.revealedHints.push(hintId);
+                    this.hintContents[hintId] = data.content;
+
+                    if (data.first_view) {
+                        alert(`Hint revealed! ${data.points_penalty} points deducted.`);
+                    }
+                } else {
+                    alert('Error loading hint');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Failed to load hint. Please try again.');
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,210 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ course.title }} - Python Learning{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <!-- Course Header -->
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'learning:course-list' %}">Courses</a></li>
+                    <li class="breadcrumb-item active">{{ course.title }}</li>
+                </ol>
+            </nav>
+
+            <h1 class="mb-3">{{ course.title }}</h1>
+
+            <div class="mb-3">
+                <span class="badge bg-{% if course.difficulty_level == 'beginner' %}success{% elif course.difficulty_level == 'intermediate' %}warning{% else %}danger{% endif %} me-2">
+                    {{ course.get_difficulty_level_display }}
+                </span>
+                <span class="badge bg-secondary me-2">
+                    <i class="bi bi-clock"></i> {{ course.estimated_duration_hours }} hours
+                </span>
+                <span class="badge bg-info">
+                    <i class="bi bi-person"></i> {{ course.instructor.get_full_name|default:course.instructor.username }}
+                </span>
+            </div>
+
+            <p class="lead">{{ course.description }}</p>
+
+            <!-- Enrollment Status -->
+            {% if user.is_authenticated %}
+                {% if is_enrolled %}
+                <div class="alert alert-success d-flex justify-content-between align-items-center">
+                    <span>
+                        <i class="bi bi-check-circle-fill"></i> You are enrolled in this course
+                        {% if enrollment %}
+                        <br><small>Progress: {{ progress_percentage|floatformat:0 }}% complete</small>
+                        {% endif %}
+                    </span>
+                    {% if can_edit %}
+                    <a href="{% url 'admin:learning_course_change' course.id %}" class="btn btn-sm btn-primary">
+                        <i class="bi bi-pencil"></i> Edit Course
+                    </a>
+                    {% endif %}
+                </div>
+                {% else %}
+                <form method="post" action="{% url 'learning:course-enroll' slug=course.slug %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-lg btn-primary">
+                        <i class="bi bi-plus-circle"></i> Enroll in This Course
+                    </button>
+                </form>
+                {% endif %}
+            {% else %}
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i> Please <a href="{% url 'accounts:login' %}">login</a> or <a href="{% url 'accounts:register' %}">register</a> to enroll in this course.
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="col-md-4">
+            {% if course.thumbnail %}
+            <img src="{{ course.thumbnail.url }}" class="img-fluid rounded shadow" alt="{{ course.title }}">
+            {% else %}
+            <div class="bg-primary rounded shadow d-flex align-items-center justify-content-center" style="height: 300px;">
+                <i class="bi bi-book text-white" style="font-size: 6rem;"></i>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Course Content (Chapters and Lessons) -->
+    <div class="row">
+        <div class="col-12">
+            <h2 class="mb-4">
+                <i class="bi bi-list-nested"></i> Course Content
+            </h2>
+
+            {% for chapter in course.chapters.all %}
+            <div class="card mb-3">
+                <div class="card-header bg-light">
+                    <h4 class="mb-0">
+                        <button class="btn btn-link text-decoration-none text-dark w-100 text-start"
+                                type="button"
+                                data-bs-toggle="collapse"
+                                data-bs-target="#chapter-{{ chapter.id }}">
+                            <i class="bi bi-chevron-down"></i> Chapter {{ chapter.order }}: {{ chapter.title }}
+                            <span class="badge bg-secondary float-end">{{ chapter.lessons.count }} lessons</span>
+                        </button>
+                    </h4>
+                </div>
+                <div id="chapter-{{ chapter.id }}" class="collapse {% if forloop.first %}show{% endif %}">
+                    <div class="card-body">
+                        {% if chapter.description %}
+                        <p class="text-muted">{{ chapter.description }}</p>
+                        {% endif %}
+
+                        <ul class="list-group list-group-flush">
+                            {% for lesson in chapter.lessons.all %}
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <div>
+                                    <i class="bi bi-file-earmark-text"></i>
+                                    <strong>{{ lesson.order }}.</strong> {{ lesson.title }}
+
+                                    {% if enrollment %}
+                                        {% with lesson_progress=enrollment.lesson_progress.all|dictsort:"lesson__order" %}
+                                        {% for progress in lesson_progress %}
+                                            {% if progress.lesson.id == lesson.id and progress.is_completed %}
+                                            <i class="bi bi-check-circle-fill text-success ms-2"></i>
+                                            {% endif %}
+                                        {% endfor %}
+                                        {% endwith %}
+                                    {% endif %}
+
+                                    <br>
+                                    <small class="text-muted">
+                                        <i class="bi bi-clock"></i> {{ lesson.duration_minutes }} min
+                                        {% if lesson.description %}
+                                        | {{ lesson.description|truncatewords:15 }}
+                                        {% endif %}
+                                    </small>
+                                </div>
+                                <div>
+                                    {% if lesson.status == 'published' %}
+                                        {% if is_enrolled %}
+                                        <a href="{% url 'learning:lesson-detail' pk=lesson.pk %}" class="btn btn-sm btn-primary">
+                                            <i class="bi bi-play-circle"></i> Start
+                                        </a>
+                                        {% else %}
+                                        <button class="btn btn-sm btn-secondary" disabled>
+                                            <i class="bi bi-lock"></i> Locked
+                                        </button>
+                                        {% endif %}
+                                    {% else %}
+                                    <span class="badge bg-warning">{{ lesson.get_status_display }}</span>
+                                    {% endif %}
+                                </div>
+                            </li>
+                            {% empty %}
+                            <li class="list-group-item text-muted">
+                                <i class="bi bi-info-circle"></i> No lessons in this chapter yet.
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            {% empty %}
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i> No chapters have been added to this course yet.
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Course Statistics (if enrolled) -->
+    {% if enrollment %}
+    <div class="row mt-4">
+        <div class="col-12">
+            <h3 class="mb-3">Your Progress</h3>
+            <div class="card">
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-md-3">
+                            <h4 class="text-primary">{{ progress_percentage|floatformat:0 }}%</h4>
+                            <p class="text-muted">Complete</p>
+                        </div>
+                        <div class="col-md-3">
+                            <h4 class="text-success">{{ enrollment.lesson_progress.filter.is_completed=True.count }}</h4>
+                            <p class="text-muted">Lessons Completed</p>
+                        </div>
+                        <div class="col-md-3">
+                            <h4 class="text-info">{{ enrollment.enrolled_at|date:"M d, Y" }}</h4>
+                            <p class="text-muted">Enrolled On</p>
+                        </div>
+                        <div class="col-md-3">
+                            {% if enrollment.completed_at %}
+                            <h4 class="text-success">
+                                <i class="bi bi-trophy-fill"></i>
+                            </h4>
+                            <p class="text-muted">Course Complete!</p>
+                            {% else %}
+                            <h4 class="text-warning">In Progress</h4>
+                            <p class="text-muted">Keep Learning!</p>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <!-- Progress Bar -->
+                    <div class="progress mt-3" style="height: 25px;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar"
+                             style="width: {{ progress_percentage|floatformat:0 }}%"
+                             aria-valuenow="{{ progress_percentage|floatformat:0 }}"
+                             aria-valuemin="0"
+                             aria-valuemax="100">
+                            {{ progress_percentage|floatformat:0 }}%
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

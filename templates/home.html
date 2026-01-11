@@ -1,0 +1,195 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Home - Python Learning Platform{% endblock %}
+
+{% block content %}
+<!-- Hero Section -->
+<div class="bg-primary text-white py-5 mb-5">
+    <div class="container">
+        <div class="row align-items-center">
+            <div class="col-lg-6">
+                <h1 class="display-4 fw-bold mb-4">
+                    Master Python Programming
+                </h1>
+                <p class="lead mb-4">
+                    Learn Python through interactive notebook-style lessons, hands-on exercises, and comprehensive assessments.
+                </p>
+                <div class="d-flex gap-3">
+                    {% if user.is_authenticated %}
+                    <a href="{% url 'learning:course-list' %}" class="btn btn-light btn-lg">
+                        <i class="bi bi-book"></i> Browse Courses
+                    </a>
+                    {% else %}
+                    <a href="{% url 'accounts:register' %}" class="btn btn-light btn-lg">
+                        <i class="bi bi-person-plus"></i> Get Started
+                    </a>
+                    <a href="{% url 'accounts:login' %}" class="btn btn-outline-light btn-lg">
+                        <i class="bi bi-box-arrow-in-right"></i> Login
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-lg-6 text-center">
+                <i class="bi bi-code-square" style="font-size: 15rem; opacity: 0.3;"></i>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Features Section -->
+<div class="container my-5">
+    <h2 class="text-center mb-5">Three Ways to Learn Python</h2>
+
+    <div class="row g-4">
+        <!-- Learning Class -->
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm text-center">
+                <div class="card-body">
+                    <div class="bg-primary bg-opacity-10 rounded-circle d-inline-flex p-4 mb-3">
+                        <i class="bi bi-book-fill text-primary" style="font-size: 3rem;"></i>
+                    </div>
+                    <h3 class="card-title">Learning Class</h3>
+                    <p class="card-text text-muted">
+                        Interactive notebook-style lessons with text, code, images, and videos. Learn Python concepts step-by-step with hands-on examples.
+                    </p>
+                    <ul class="list-unstyled text-start">
+                        <li class="mb-2"><i class="bi bi-check-circle-fill text-success"></i> Jupyter-style notebooks</li>
+                        <li class="mb-2"><i class="bi bi-check-circle-fill text-success"></i> Live code execution</li>
+                        <li class="mb-2"><i class="bi bi-check-circle-fill text-success"></i> Video tutorials</li>
+                        <li class="mb-2"><i class="bi bi-check-circle-fill text-success"></i> Progress tracking</li>
+                    </ul>
+                    <a href="{% url 'learning:course-list' %}" class="btn btn-primary mt-3">
+                        Browse Courses
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Training Class -->
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm text-center">
+                <div class="card-body">
+                    <div class="bg-success bg-opacity-10 rounded-circle d-inline-flex p-4 mb-3">
+                        <i class="bi bi-code-slash text-success" style="font-size: 3rem;"></i>
+                    </div>
+                    <h3 class="card-title">Training Class</h3>
+                    <p class="card-text text-muted">
+                        Practice your skills with coding challenges. Get instant feedback with automated testing and learn from progressive hints.
+                    </p>
+                    <ul class="list-unstyled text-start">
+                        <li class="mb-2"><i class="bi bi-check-circle-fill text-success"></i> Coding exercises</li>
+                        <li class="mb-2"><i class="bi bi-check-circle-fill text-success"></i> Auto-grading</li>
+                        <li class="mb-2"><i class="bi bi-check-circle-fill text-success"></i> Progressive hints</li>
+                        <li class="mb-2"><i class="bi bi-check-circle-fill text-success"></i> Solution explanations</li>
+                    </ul>
+                    <a href="{% url 'training:exercise-list' %}" class="btn btn-success mt-3">
+                        Practice Exercises
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Examination Class -->
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm text-center">
+                <div class="card-body">
+                    <div class="bg-warning bg-opacity-10 rounded-circle d-inline-flex p-4 mb-3">
+                        <i class="bi bi-trophy-fill text-warning" style="font-size: 3rem;"></i>
+                    </div>
+                    <h3 class="card-title">Examination Class</h3>
+                    <p class="card-text text-muted">
+                        Test your knowledge with timed assessments. Earn certificates upon passing exams and showcase your Python skills.
+                    </p>
+                    <ul class="list-unstyled text-start">
+                        <li class="mb-2"><i class="bi bi-check-circle-fill text-success"></i> Timed assessments</li>
+                        <li class="mb-2"><i class="bi bi-check-circle-fill text-success"></i> Multiple question types</li>
+                        <li class="mb-2"><i class="bi bi-check-circle-fill text-success"></i> Instant results</li>
+                        <li class="mb-2"><i class="bi bi-check-circle-fill text-success"></i> PDF certificates</li>
+                    </ul>
+                    <a href="#" class="btn btn-warning mt-3">
+                        Take Exams
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Stats Section -->
+<div class="bg-light py-5 my-5">
+    <div class="container">
+        <div class="row text-center">
+            <div class="col-md-3">
+                <h2 class="display-4 text-primary">500+</h2>
+                <p class="text-muted">Lessons</p>
+            </div>
+            <div class="col-md-3">
+                <h2 class="display-4 text-success">1000+</h2>
+                <p class="text-muted">Exercises</p>
+            </div>
+            <div class="col-md-3">
+                <h2 class="display-4 text-warning">50+</h2>
+                <p class="text-muted">Exams</p>
+            </div>
+            <div class="col-md-3">
+                <h2 class="display-4 text-info">10K+</h2>
+                <p class="text-muted">Students</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- How It Works Section -->
+<div class="container my-5">
+    <h2 class="text-center mb-5">How It Works</h2>
+
+    <div class="row g-4">
+        <div class="col-md-3 text-center">
+            <div class="bg-primary bg-opacity-10 rounded-circle d-inline-flex p-4 mb-3">
+                <i class="bi bi-1-circle-fill text-primary" style="font-size: 3rem;"></i>
+            </div>
+            <h4>Learn</h4>
+            <p class="text-muted">Start with interactive lessons in the Learning Class</p>
+        </div>
+        <div class="col-md-3 text-center">
+            <div class="bg-success bg-opacity-10 rounded-circle d-inline-flex p-4 mb-3">
+                <i class="bi bi-2-circle-fill text-success" style="font-size: 3rem;"></i>
+            </div>
+            <h4>Practice</h4>
+            <p class="text-muted">Apply your knowledge with coding exercises</p>
+        </div>
+        <div class="col-md-3 text-center">
+            <div class="bg-warning bg-opacity-10 rounded-circle d-inline-flex p-4 mb-3">
+                <i class="bi bi-3-circle-fill text-warning" style="font-size: 3rem;"></i>
+            </div>
+            <h4>Test</h4>
+            <p class="text-muted">Prove your skills with comprehensive exams</p>
+        </div>
+        <div class="col-md-3 text-center">
+            <div class="bg-info bg-opacity-10 rounded-circle d-inline-flex p-4 mb-3">
+                <i class="bi bi-trophy-fill text-info" style="font-size: 3rem;"></i>
+            </div>
+            <h4>Achieve</h4>
+            <p class="text-muted">Earn certificates and advance your career</p>
+        </div>
+    </div>
+</div>
+
+<!-- CTA Section -->
+<div class="bg-gradient text-white py-5 mb-5" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+    <div class="container text-center">
+        <h2 class="display-5 fw-bold mb-4">Ready to Start Learning?</h2>
+        <p class="lead mb-4">Join thousands of students mastering Python programming</p>
+        {% if user.is_authenticated %}
+        <a href="{% url 'learning:course-list' %}" class="btn btn-light btn-lg">
+            <i class="bi bi-book"></i> Browse Courses
+        </a>
+        {% else %}
+        <a href="{% url 'accounts:register' %}" class="btn btn-light btn-lg">
+            <i class="bi bi-person-plus"></i> Get Started Free
+        </a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

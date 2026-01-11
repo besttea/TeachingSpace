@@ -1,0 +1,577 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Edit: {{ lesson.title }} - Python Learning{% endblock %}
+
+{% block extra_css %}
+<style>
+    .notebook-container {
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+
+    .cell {
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        margin: 1.5rem 0;
+        background: white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        transition: all 0.2s;
+        position: relative;
+    }
+
+    .cell.editing {
+        border-color: #0d6efd;
+        box-shadow: 0 4px 12px rgba(13,110,253,0.2);
+    }
+
+    .cell.dragging {
+        opacity: 0.5;
+    }
+
+    .cell-toolbar {
+        padding: 0.5rem 1rem;
+        background: #f8f9fa;
+        border-bottom: 1px solid #e0e0e0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        cursor: grab;
+    }
+
+    .cell-toolbar:active {
+        cursor: grabbing;
+    }
+
+    .cell-toolbar .cell-type-badge {
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+    }
+
+    .cell-toolbar .cell-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .cell-toolbar button {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.85rem;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        border-radius: 4px;
+        transition: background 0.2s;
+    }
+
+    .cell-toolbar button:hover {
+        background: rgba(0,0,0,0.1);
+    }
+
+    .cell-content {
+        padding: 1.5rem;
+    }
+
+    .cell-editor {
+        padding: 1.5rem;
+    }
+
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 500;
+    }
+
+    .form-control {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        font-family: inherit;
+    }
+
+    textarea.form-control {
+        font-family: 'Courier New', monospace;
+        min-height: 200px;
+        resize: vertical;
+    }
+
+    .code-editor {
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        min-height: 200px;
+    }
+
+    .markdown-preview {
+        padding: 1rem;
+        border: 1px solid #e0e0e0;
+        border-radius: 4px;
+        background: #f8f9fa;
+        min-height: 100px;
+    }
+
+    .add-cell-menu {
+        display: flex;
+        justify-content: center;
+        gap: 1rem;
+        padding: 1rem;
+        margin: 2rem 0;
+        background: #f8f9fa;
+        border-radius: 8px;
+        border: 2px dashed #ced4da;
+    }
+
+    .add-cell-btn {
+        padding: 0.75rem 1.5rem;
+        border: 2px solid #0d6efd;
+        background: white;
+        color: #0d6efd;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+
+    .add-cell-btn:hover {
+        background: #0d6efd;
+        color: white;
+    }
+
+    .btn-save {
+        background: #28a745;
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+
+    .btn-save:hover {
+        background: #218838;
+    }
+
+    .btn-cancel {
+        background: #6c757d;
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+
+    .btn-cancel:hover {
+        background: #5a6268;
+    }
+
+    .lesson-header {
+        padding: 2rem 0;
+        border-bottom: 2px solid #e0e0e0;
+        margin-bottom: 2rem;
+    }
+
+    .sortable-ghost {
+        opacity: 0.4;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="notebook-container">
+    <!-- Lesson Header -->
+    <div class="lesson-header">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'learning:course-list' %}">Courses</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'learning:course-detail' slug=lesson.chapter.course.slug %}">{{ lesson.chapter.course.title }}</a></li>
+                <li class="breadcrumb-item active">Edit: {{ lesson.title }}</li>
+            </ol>
+        </nav>
+
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h1 class="mb-2">
+                    <i class="bi bi-pencil-square text-primary"></i> Editing: {{ lesson.title }}
+                </h1>
+                <p class="text-muted">Drag cells to reorder | Click to edit</p>
+            </div>
+            <div>
+                <a href="{% url 'learning:lesson-detail' pk=lesson.pk %}" class="btn btn-outline-secondary">
+                    <i class="bi bi-eye"></i> Preview
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div x-data="notebookEditor()" x-init="init()">
+        <!-- Add Cell Menu -->
+        <div class="add-cell-menu">
+            <button class="add-cell-btn" @click="addCell('text')">
+                <i class="bi bi-file-text"></i> Add Text Cell
+            </button>
+            <button class="add-cell-btn" @click="addCell('code')">
+                <i class="bi bi-code-square"></i> Add Code Cell
+            </button>
+            <button class="add-cell-btn" @click="addCell('image')">
+                <i class="bi bi-image"></i> Add Image Cell
+            </button>
+            <button class="add-cell-btn" @click="addCell('video')">
+                <i class="bi bi-camera-video"></i> Add Video Cell
+            </button>
+        </div>
+
+        <!-- Cells Container (Sortable) -->
+        <div id="cells-container">
+            {% for cell in cells %}
+            <div class="cell"
+                 data-cell-id="{{ cell.id }}"
+                 data-cell-type="{{ cell.cell_type }}"
+                 data-order="{{ cell.order }}">
+
+                <!-- Cell Toolbar -->
+                <div class="cell-toolbar">
+                    <div>
+                        <span class="cell-type-badge badge bg-secondary">{{ cell.get_cell_type_display }}</span>
+                        <span class="text-muted ms-2">Order: <span class="cell-order">{{ cell.order }}</span></span>
+                    </div>
+                    <div class="cell-actions">
+                        <button @click="editCell({{ cell.id }})" title="Edit">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <button @click="deleteCell({{ cell.id }})" title="Delete" class="text-danger">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Cell Content (View Mode) -->
+                <div class="cell-content" x-show="editingCell !== {{ cell.id }}">
+                    {% if cell.cell_type == 'text' %}
+                    <div class="markdown-content" x-html="renderMarkdown(`{{ cell.data.markdown|escapejs }}`)"></div>
+
+                    {% elif cell.cell_type == 'code' %}
+                    <pre><code class="language-python">{{ cell.data.source }}</code></pre>
+
+                    {% elif cell.cell_type == 'image' %}
+                    {% if cell.data.url %}
+                    <img src="{{ cell.data.url }}" alt="{{ cell.data.alt_text|default:'' }}" style="max-width: 100%;">
+                    {% if cell.data.caption %}
+                    <p class="text-muted mt-2">{{ cell.data.caption }}</p>
+                    {% endif %}
+                    {% else %}
+                    <p class="text-muted">No image URL set</p>
+                    {% endif %}
+
+                    {% elif cell.cell_type == 'video' %}
+                    {% if cell.data.url %}
+                    <p><strong>Video URL:</strong> {{ cell.data.url }}</p>
+                    <p><strong>Source Type:</strong> {{ cell.data.source_type }}</p>
+                    {% if cell.data.caption %}
+                    <p><strong>Caption:</strong> {{ cell.data.caption }}</p>
+                    {% endif %}
+                    {% else %}
+                    <p class="text-muted">No video URL set</p>
+                    {% endif %}
+                    {% endif %}
+                </div>
+
+                <!-- Cell Editor (Edit Mode) -->
+                <div class="cell-editor" x-show="editingCell === {{ cell.id }}" style="display: none;">
+                    {% if cell.cell_type == 'text' %}
+                    <div class="form-group">
+                        <label>Markdown Content:</label>
+                        <textarea
+                            class="form-control"
+                            x-model="cellData.markdown"
+                            placeholder="# Enter markdown content here..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Preview:</label>
+                        <div class="markdown-preview" x-html="renderMarkdown(cellData.markdown)"></div>
+                    </div>
+
+                    {% elif cell.cell_type == 'code' %}
+                    <div class="form-group">
+                        <label>Python Code:</label>
+                        <textarea
+                            class="form-control"
+                            x-model="cellData.source"
+                            placeholder="# Write Python code here..."></textarea>
+                    </div>
+
+                    {% elif cell.cell_type == 'image' %}
+                    <div class="form-group">
+                        <label>Image URL:</label>
+                        <input type="text" class="form-control" x-model="cellData.url" placeholder="https://...">
+                    </div>
+                    <div class="form-group">
+                        <label>Caption (optional):</label>
+                        <input type="text" class="form-control" x-model="cellData.caption">
+                    </div>
+                    <div class="form-group">
+                        <label>Alt Text (optional):</label>
+                        <input type="text" class="form-control" x-model="cellData.alt_text">
+                    </div>
+
+                    {% elif cell.cell_type == 'video' %}
+                    <div class="form-group">
+                        <label>Video Source Type:</label>
+                        <select class="form-control" x-model="cellData.source_type">
+                            <option value="youtube">YouTube</option>
+                            <option value="vimeo">Vimeo</option>
+                            <option value="uploaded">Direct URL</option>
+                            <option value="manim_generated">Manim Generated</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Video URL/ID:</label>
+                        <input type="text" class="form-control" x-model="cellData.url"
+                               placeholder="YouTube ID, Vimeo ID, or direct URL">
+                        <small class="form-text text-muted">
+                            For YouTube: just the video ID (e.g., dQw4w9WgXcQ)<br>
+                            For Vimeo: just the video ID<br>
+                            For direct: full URL to video file
+                        </small>
+                    </div>
+                    <div class="form-group">
+                        <label>Caption (optional):</label>
+                        <input type="text" class="form-control" x-model="cellData.caption">
+                    </div>
+                    {% endif %}
+
+                    <div class="d-flex gap-2 mt-3">
+                        <button class="btn-save" @click="saveCell({{ cell.id }})">
+                            <i class="bi bi-check"></i> Save
+                        </button>
+                        <button class="btn-cancel" @click="cancelEdit()">
+                            <i class="bi bi-x"></i> Cancel
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+            {% empty %}
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i> No cells yet. Use the buttons above to add content.
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Save Order Button -->
+        <div class="text-center my-4">
+            <button class="btn btn-primary btn-lg" @click="saveOrder()">
+                <i class="bi bi-save"></i> Save Cell Order
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function notebookEditor() {
+    return {
+        editingCell: null,
+        cellData: {},
+        sortable: null,
+
+        init() {
+            // Initialize SortableJS
+            const container = document.getElementById('cells-container');
+            this.sortable = Sortable.create(container, {
+                handle: '.cell-toolbar',
+                animation: 150,
+                ghostClass: 'sortable-ghost',
+                onEnd: () => {
+                    this.updateCellOrders();
+                }
+            });
+
+            // Syntax highlighting
+            Prism.highlightAll();
+        },
+
+        renderMarkdown(markdown) {
+            if (typeof marked !== 'undefined' && markdown) {
+                return marked.parse(markdown);
+            }
+            return markdown || '<p class="text-muted">No content</p>';
+        },
+
+        updateCellOrders() {
+            const cells = document.querySelectorAll('#cells-container .cell');
+            cells.forEach((cell, index) => {
+                const orderSpan = cell.querySelector('.cell-order');
+                if (orderSpan) {
+                    orderSpan.textContent = index;
+                }
+                cell.dataset.order = index;
+            });
+        },
+
+        async addCell(cellType) {
+            const order = document.querySelectorAll('#cells-container .cell').length;
+
+            try {
+                const response = await fetch('/learning/api/cells/create/', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrftoken,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        lesson_id: {{ lesson.id }},
+                        cell_type: cellType,
+                        order: order
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('Cell added successfully! Reloading page...');
+                    location.reload();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Failed to add cell. Please try again.');
+            }
+        },
+
+        editCell(cellId) {
+            // Get cell element
+            const cellElement = document.querySelector(`[data-cell-id="${cellId}"]`);
+            const cellType = cellElement.dataset.cellType;
+
+            // Get current cell data from the DOM
+            this.cellData = {};
+
+            if (cellType === 'text') {
+                // Extract markdown from the rendered content (not ideal, but works)
+                const markdownContent = cellElement.querySelector('textarea');
+                if (markdownContent) {
+                    this.cellData.markdown = markdownContent.value;
+                } else {
+                    // Try to get from data attribute or default
+                    this.cellData.markdown = '# Edit this cell...';
+                }
+            } else if (cellType === 'code') {
+                const codeElement = cellElement.querySelector('code');
+                this.cellData.source = codeElement ? codeElement.textContent : '';
+            } else if (cellType === 'image') {
+                this.cellData.url = '';
+                this.cellData.caption = '';
+                this.cellData.alt_text = '';
+            } else if (cellType === 'video') {
+                this.cellData.url = '';
+                this.cellData.source_type = 'youtube';
+                this.cellData.caption = '';
+            }
+
+            this.editingCell = cellId;
+        },
+
+        async saveCell(cellId) {
+            try {
+                const response = await fetch(`/learning/api/cells/${cellId}/update/`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrftoken,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        data: this.cellData,
+                        change_description: 'Cell updated via editor'
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('Cell saved successfully! Reloading page...');
+                    location.reload();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Failed to save cell. Please try again.');
+            }
+        },
+
+        cancelEdit() {
+            this.editingCell = null;
+            this.cellData = {};
+        },
+
+        async deleteCell(cellId) {
+            if (!confirm('Are you sure you want to delete this cell?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/learning/api/cells/${cellId}/delete/`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrftoken,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('Cell deleted successfully! Reloading page...');
+                    location.reload();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Failed to delete cell. Please try again.');
+            }
+        },
+
+        async saveOrder() {
+            const cells = document.querySelectorAll('#cells-container .cell');
+            const cellOrders = Array.from(cells).map((cell, index) => ({
+                id: parseInt(cell.dataset.cellId),
+                order: index
+            }));
+
+            try {
+                const response = await fetch('/learning/api/cells/reorder/', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrftoken,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        lesson_id: {{ lesson.id }},
+                        cell_orders: cellOrders
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('Cell order saved successfully!');
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Failed to save order. Please try again.');
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

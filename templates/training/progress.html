@@ -1,0 +1,163 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}My Exercise Progress - Python Learning{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <h1 class="mb-4">
+        <i class="bi bi-graph-up"></i> My Exercise Progress
+    </h1>
+
+    <!-- Statistics Cards -->
+    <div class="row g-4 mb-4">
+        <div class="col-md-3">
+            <div class="card bg-primary text-white shadow">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title text-white-50">Total Points</h6>
+                            <h2 class="mb-0">{{ total_points }}</h2>
+                        </div>
+                        <i class="bi bi-star-fill" style="font-size: 2.5rem; opacity: 0.5;"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card bg-success text-white shadow">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title text-white-50">Exercises Passed</h6>
+                            <h2 class="mb-0">{{ passed_submissions }}</h2>
+                        </div>
+                        <i class="bi bi-check-circle-fill" style="font-size: 2.5rem; opacity: 0.5;"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card bg-info text-white shadow">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title text-white-50">Total Attempts</h6>
+                            <h2 class="mb-0">{{ total_submissions }}</h2>
+                        </div>
+                        <i class="bi bi-send-fill" style="font-size: 2.5rem; opacity: 0.5;"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card bg-warning text-white shadow">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title text-white-50">Exercises Attempted</h6>
+                            <h2 class="mb-0">{{ exercises_attempted }}</h2>
+                        </div>
+                        <i class="bi bi-puzzle-fill" style="font-size: 2.5rem; opacity: 0.5;"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Rate -->
+    {% if total_submissions > 0 %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Success Rate</h5>
+            <div class="progress" style="height: 30px;">
+                <div class="progress-bar bg-success"
+                     role="progressbar"
+                     style="width: {% widthratio passed_submissions total_submissions 100 %}%"
+                     aria-valuenow="{% widthratio passed_submissions total_submissions 100 %}"
+                     aria-valuemin="0"
+                     aria-valuemax="100">
+                    {% widthratio passed_submissions total_submissions 100 %}%
+                </div>
+            </div>
+            <small class="text-muted mt-2 d-block">
+                {{ passed_submissions }} passed out of {{ total_submissions }} total submissions
+            </small>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Recent Submissions -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-clock-history"></i> Recent Submissions</h5>
+            <a href="{% url 'training:exercise-list' %}" class="btn btn-sm btn-primary">
+                <i class="bi bi-plus-circle"></i> Solve More Exercises
+            </a>
+        </div>
+        <div class="card-body">
+            {% if recent_submissions %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Exercise</th>
+                            <th>Status</th>
+                            <th>Tests</th>
+                            <th>Points</th>
+                            <th>Submitted</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for submission in recent_submissions %}
+                        <tr>
+                            <td>
+                                <a href="{% url 'training:exercise-detail' slug=submission.exercise.slug %}">
+                                    {{ submission.exercise.title }}
+                                </a>
+                                <br>
+                                <small class="badge bg-{% if submission.exercise.difficulty == 'beginner' %}success{% elif submission.exercise.difficulty == 'intermediate' %}warning{% else %}danger{% endif %}">
+                                    {{ submission.exercise.get_difficulty_display }}
+                                </small>
+                            </td>
+                            <td>
+                                <span class="badge bg-{% if submission.status == 'passed' %}success{% elif submission.status == 'failed' %}danger{% else %}secondary{% endif %}">
+                                    {{ submission.get_status_display }}
+                                </span>
+                            </td>
+                            <td>{{ submission.tests_passed }}/{{ submission.tests_total }}</td>
+                            <td>
+                                {% if submission.points_awarded > 0 %}
+                                <strong class="text-success">+{{ submission.points_awarded }}</strong>
+                                {% else %}
+                                <span class="text-muted">0</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ submission.submitted_at|timesince }} ago</td>
+                            <td>
+                                <a href="{% url 'training:submission-detail' pk=submission.pk %}" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-eye"></i> View
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center py-4">
+                <i class="bi bi-inbox text-muted" style="font-size: 3rem;"></i>
+                <p class="text-muted mt-3">No submissions yet. Start solving exercises!</p>
+                <a href="{% url 'training:exercise-list' %}" class="btn btn-primary">
+                    <i class="bi bi-code-slash"></i> Browse Exercises
+                </a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

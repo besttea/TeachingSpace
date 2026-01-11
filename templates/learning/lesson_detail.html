@@ -1,0 +1,456 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ lesson.title }} - Python Learning{% endblock %}
+
+{% block extra_css %}
+<style>
+    .notebook-container {
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+
+    .cell {
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        margin: 1.5rem 0;
+        background: white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        transition: box-shadow 0.2s;
+    }
+
+    .cell:hover {
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+
+    .cell-content {
+        padding: 1.5rem;
+    }
+
+    .text-cell {
+        line-height: 1.6;
+    }
+
+    .text-cell h1 { font-size: 2rem; margin-top: 1rem; }
+    .text-cell h2 { font-size: 1.75rem; margin-top: 1rem; }
+    .text-cell h3 { font-size: 1.5rem; margin-top: 1rem; }
+    .text-cell p { margin: 0.75rem 0; }
+    .text-cell code { background: #f5f5f5; padding: 0.2rem 0.4rem; border-radius: 3px; }
+    .text-cell pre { background: #f5f5f5; padding: 1rem; border-radius: 4px; overflow-x: auto; }
+
+    .code-cell {
+        background: #f8f9fa;
+    }
+
+    .code-cell .code-header {
+        padding: 0.5rem 1rem;
+        background: #e9ecef;
+        border-bottom: 1px solid #dee2e6;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .code-cell .execution-count {
+        font-family: monospace;
+        color: #666;
+        font-size: 0.85rem;
+    }
+
+    .code-cell .code-source {
+        padding: 1rem;
+        background: #282c34;
+        color: #abb2bf;
+        font-family: 'Courier New', Consolas, Monaco, monospace;
+        font-size: 0.9rem;
+        overflow-x: auto;
+        white-space: pre;
+    }
+
+    .code-cell .code-output {
+        padding: 1rem;
+        background: #ffffff;
+        border-top: 1px solid #dee2e6;
+        font-family: 'Courier New', monospace;
+        font-size: 0.85rem;
+        white-space: pre-wrap;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .code-cell .code-output.success {
+        border-left: 4px solid #28a745;
+    }
+
+    .code-cell .code-output.error {
+        color: #dc3545;
+        border-left: 4px solid #dc3545;
+    }
+
+    .image-cell img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 4px;
+    }
+
+    .image-cell .caption {
+        margin-top: 0.5rem;
+        color: #666;
+        font-size: 0.9rem;
+        text-align: center;
+    }
+
+    .video-cell iframe,
+    .video-cell video {
+        width: 100%;
+        aspect-ratio: 16/9;
+        border-radius: 4px;
+    }
+
+    .video-cell .caption {
+        margin-top: 0.5rem;
+        color: #666;
+        font-size: 0.9rem;
+    }
+
+    .lesson-header {
+        padding: 2rem 0;
+        border-bottom: 2px solid #e0e0e0;
+        margin-bottom: 2rem;
+    }
+
+    .lesson-nav {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem 0;
+        margin-top: 2rem;
+        border-top: 2px solid #e0e0e0;
+    }
+
+    .progress-indicator {
+        background: #e9ecef;
+        height: 4px;
+        border-radius: 2px;
+        overflow: hidden;
+        margin-bottom: 1rem;
+    }
+
+    .progress-indicator .progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #0d6efd, #0dcaf0);
+        transition: width 0.3s ease;
+    }
+
+    .btn-execute {
+        background: #28a745;
+        color: white;
+        border: none;
+        padding: 0.4rem 1rem;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.85rem;
+        transition: background 0.2s;
+    }
+
+    .btn-execute:hover {
+        background: #218838;
+    }
+
+    .btn-execute:disabled {
+        background: #6c757d;
+        cursor: not-allowed;
+    }
+
+    .executing {
+        animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="notebook-container">
+    <!-- Lesson Header -->
+    <div class="lesson-header">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'learning:course-list' %}">Courses</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'learning:course-detail' slug=lesson.chapter.course.slug %}">{{ lesson.chapter.course.title }}</a></li>
+                <li class="breadcrumb-item active">{{ lesson.title }}</li>
+            </ol>
+        </nav>
+
+        <h1 class="mb-3">{{ lesson.title }}</h1>
+
+        {% if lesson.description %}
+        <p class="lead text-muted">{{ lesson.description }}</p>
+        {% endif %}
+
+        {% if enrollment %}
+        <div class="progress-indicator">
+            <div class="progress-bar" style="width: {{ progress.completion_percentage|default:0 }}%"></div>
+        </div>
+        <small class="text-muted">
+            <i class="bi bi-clock"></i> Time spent: {{ progress.time_spent_seconds|default:0|floatformat:0 }}s
+            | <i class="bi bi-check-circle"></i> Cells executed: {{ progress.cells_executed|default:0 }}
+        </small>
+        {% endif %}
+
+        {% if can_edit %}
+        <div class="mt-3">
+            <a href="{% url 'learning:lesson-edit' pk=lesson.pk %}" class="btn btn-primary">
+                <i class="bi bi-pencil"></i> Edit Lesson
+            </a>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Cells -->
+    <div x-data="notebookViewer()" x-init="init()">
+        {% for cell in cells %}
+        <div class="cell" data-cell-id="{{ cell.id }}" data-cell-type="{{ cell.cell_type }}">
+
+            {% if cell.cell_type == 'text' %}
+            <!-- Text/Markdown Cell -->
+            <div class="cell-content text-cell">
+                <div class="markdown-content" x-html="renderMarkdown(`{{ cell.data.markdown|escapejs }}`)"></div>
+            </div>
+
+            {% elif cell.cell_type == 'code' %}
+            <!-- Code Cell -->
+            <div class="code-cell">
+                <div class="code-header">
+                    <span class="execution-count">
+                        {% if cell.data.execution_count %}
+                        In [{{ cell.data.execution_count }}]:
+                        {% else %}
+                        In [ ]:
+                        {% endif %}
+                    </span>
+                    {% if enrollment %}
+                    <button
+                        class="btn-execute"
+                        @click="executeCell({{ cell.id }})"
+                        :disabled="executing === {{ cell.id }}"
+                        :class="{'executing': executing === {{ cell.id }}}">
+                        <template x-if="executing === {{ cell.id }}">
+                            <i class="bi bi-arrow-repeat"></i>
+                        </template>
+                        <template x-if="executing !== {{ cell.id }}">
+                            <i class="bi bi-play-fill"></i>
+                        </template>
+                        Run
+                    </button>
+                    {% endif %}
+                </div>
+                <div class="code-source"><code class="language-python">{{ cell.data.source }}</code></div>
+                {% if cell.data.output %}
+                <div class="code-output {{ cell.data.status|default:'success' }}">{{ cell.data.output }}</div>
+                {% endif %}
+            </div>
+
+            {% elif cell.cell_type == 'image' %}
+            <!-- Image Cell -->
+            <div class="cell-content image-cell">
+                {% if cell.data.url %}
+                <img src="{{ cell.data.url }}" alt="{{ cell.data.alt_text|default:'' }}">
+                {% if cell.data.caption %}
+                <div class="caption">{{ cell.data.caption }}</div>
+                {% endif %}
+                {% else %}
+                <p class="text-muted">No image URL provided</p>
+                {% endif %}
+            </div>
+
+            {% elif cell.cell_type == 'video' %}
+            <!-- Video Cell -->
+            <div class="cell-content video-cell">
+                {% if cell.data.url %}
+                    {% if cell.data.source_type == 'youtube' %}
+                    <!-- YouTube embed -->
+                    <iframe
+                        src="https://www.youtube.com/embed/{{ cell.data.url }}"
+                        frameborder="0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowfullscreen>
+                    </iframe>
+                    {% elif cell.data.source_type == 'vimeo' %}
+                    <!-- Vimeo embed -->
+                    <iframe
+                        src="https://player.vimeo.com/video/{{ cell.data.url }}"
+                        frameborder="0"
+                        allow="autoplay; fullscreen; picture-in-picture"
+                        allowfullscreen>
+                    </iframe>
+                    {% else %}
+                    <!-- Direct video file -->
+                    <video controls>
+                        <source src="{{ cell.data.url }}" type="video/mp4">
+                        Your browser does not support the video tag.
+                    </video>
+                    {% endif %}
+                    {% if cell.data.caption %}
+                    <div class="caption">{{ cell.data.caption }}</div>
+                    {% endif %}
+                {% else %}
+                <p class="text-muted">No video URL provided</p>
+                {% endif %}
+            </div>
+            {% endif %}
+
+        </div>
+        {% empty %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> No content has been added to this lesson yet.
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Lesson Navigation & Completion -->
+    <div class="lesson-nav">
+        <div>
+            {% if lesson.get_previous %}
+            <a href="{% url 'learning:lesson-detail' pk=lesson.get_previous.pk %}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Previous Lesson
+            </a>
+            {% endif %}
+        </div>
+
+        <div>
+            {% if enrollment and not progress.is_completed %}
+            <button
+                class="btn btn-success"
+                @click="markComplete({{ lesson.id }})">
+                <i class="bi bi-check-circle"></i> Mark as Complete
+            </button>
+            {% elif progress.is_completed %}
+            <span class="badge bg-success">
+                <i class="bi bi-check-circle-fill"></i> Completed
+            </span>
+            {% endif %}
+        </div>
+
+        <div>
+            {% if lesson.get_next %}
+            <a href="{% url 'learning:lesson-detail' pk=lesson.get_next.pk %}" class="btn btn-primary">
+                Next Lesson <i class="bi bi-arrow-right"></i>
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function notebookViewer() {
+    return {
+        executing: null,
+
+        init() {
+            // Render syntax highlighting for code blocks
+            Prism.highlightAll();
+
+            // Render KaTeX math
+            if (typeof renderMathInElement !== 'undefined') {
+                renderMathInElement(document.body, {
+                    delimiters: [
+                        {left: '$$', right: '$$', display: true},
+                        {left: '$', right: '$', display: false},
+                        {left: '\\[', right: '\\]', display: true},
+                        {left: '\\(', right: '\\)', display: false}
+                    ]
+                });
+            }
+        },
+
+        renderMarkdown(markdown) {
+            if (typeof marked !== 'undefined') {
+                return marked.parse(markdown);
+            }
+            return markdown;
+        },
+
+        async executeCell(cellId) {
+            this.executing = cellId;
+
+            try {
+                const response = await fetch(`/learning/api/cells/${cellId}/execute/`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrftoken,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Update cell output in the DOM
+                    const cellElement = document.querySelector(`[data-cell-id="${cellId}"]`);
+                    const outputElement = cellElement.querySelector('.code-output');
+                    const headerElement = cellElement.querySelector('.execution-count');
+
+                    if (outputElement) {
+                        outputElement.textContent = data.output;
+                        outputElement.className = 'code-output ' + data.status;
+                    } else {
+                        // Create output element if it doesn't exist
+                        const codeCell = cellElement.querySelector('.code-cell');
+                        const newOutput = document.createElement('div');
+                        newOutput.className = 'code-output ' + data.status;
+                        newOutput.textContent = data.output;
+                        codeCell.appendChild(newOutput);
+                    }
+
+                    // Update execution count
+                    if (headerElement && data.execution_count) {
+                        headerElement.textContent = `In [${data.execution_count}]:`;
+                    }
+                } else {
+                    alert('Error executing cell: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Failed to execute cell. Please try again.');
+            } finally {
+                this.executing = null;
+            }
+        },
+
+        async markComplete(lessonId) {
+            if (!confirm('Mark this lesson as complete?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/learning/api/lessons/${lessonId}/mark-complete/`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrftoken,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert(`Lesson completed! Course progress: ${data.course_progress}%`);
+                    location.reload();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Failed to mark lesson as complete. Please try again.');
+            }
+        }
+    }
+}
+</script>
+{% endblock %}
