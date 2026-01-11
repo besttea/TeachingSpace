@@ -1,0 +1,197 @@
+{% extends 'base.html' %}
+
+{% block title %}考试结果 - {{ student_exam.exam.title }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <!-- Result Header -->
+    <div class="row mb-4">
+        <div class="col-lg-8 mx-auto">
+            <div class="card shadow-lg">
+                <div class="card-body text-center py-5">
+                    {% if is_passing %}
+                    <i class="bi bi-check-circle-fill text-success" style="font-size: 5rem;"></i>
+                    <h2 class="text-success mt-3">恭喜！您通过了考试</h2>
+                    {% else %}
+                    <i class="bi bi-x-circle-fill text-danger" style="font-size: 5rem;"></i>
+                    <h2 class="text-danger mt-3">很遗憾，您未通过考试</h2>
+                    {% endif %}
+
+                    <h3 class="mb-4">{{ student_exam.exam.title }}</h3>
+
+                    <div class="row mt-4">
+                        <div class="col-md-3 col-6">
+                            <div class="mb-2 text-muted">您的得分</div>
+                            <h2 class="{% if is_passing %}text-success{% else %}text-danger{% endif %}">
+                                {{ student_exam.score }}%
+                            </h2>
+                        </div>
+                        <div class="col-md-3 col-6">
+                            <div class="mb-2 text-muted">及格线</div>
+                            <h2>{{ student_exam.exam.passing_score }}%</h2>
+                        </div>
+                        <div class="col-md-3 col-6">
+                            <div class="mb-2 text-muted">获得分数</div>
+                            <h2>{{ earned_points }} / {{ total_points }}</h2>
+                        </div>
+                        <div class="col-md-3 col-6">
+                            <div class="mb-2 text-muted">尝试次数</div>
+                            <h2>{{ student_exam.attempt_number }}</h2>
+                        </div>
+                    </div>
+
+                    <div class="mt-4">
+                        <small class="text-muted">
+                            <i class="bi bi-clock"></i> 完成时间: {{ student_exam.end_time|date:"Y-m-d H:i:s" }}
+                        </small>
+                    </div>
+
+                    <div class="mt-4">
+                        {% if is_passing %}
+                        <a href="#" class="btn btn-success me-2" disabled>
+                            <i class="bi bi-award"></i> 下载证书 (开发中)
+                        </a>
+                        {% endif %}
+                        <a href="{% url 'examination:exam-detail' student_exam.exam.id %}" class="btn btn-primary">
+                            <i class="bi bi-arrow-left"></i> 返回考试详情
+                        </a>
+                        <a href="{% url 'examination:exam-list' %}" class="btn btn-outline-secondary">
+                            <i class="bi bi-list"></i> 返回考试列表
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Detailed Answers -->
+    <div class="row">
+        <div class="col-lg-10 mx-auto">
+            <h4 class="mb-4"><i class="bi bi-clipboard-check"></i> 答题详情</h4>
+
+            {% for a_data in answers %}
+            <div class="card mb-4 {% if a_data.answer.is_correct %}border-success{% elif a_data.answer.is_correct == False %}border-danger{% endif %}">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>第 {{ forloop.counter }} 题</strong>
+                        <span class="badge bg-secondary ms-2">{{ a_data.question.get_question_type_display }}</span>
+                    </div>
+                    <div>
+                        {% if a_data.answer.is_correct == True %}
+                        <span class="badge bg-success">正确 ✓</span>
+                        {% elif a_data.answer.is_correct == False %}
+                        <span class="badge bg-danger">错误 ✗</span>
+                        {% else %}
+                        <span class="badge bg-secondary">待评分</span>
+                        {% endif %}
+                        <span class="badge bg-info ms-1">
+                            {% if a_data.answer.points_awarded is not None %}
+                            {{ a_data.answer.points_awarded }} / {{ a_data.question.points }} 分
+                            {% else %}
+                            - / {{ a_data.question.points }} 分
+                            {% endif %}
+                        </span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p class="fw-bold">{{ a_data.question.question_text|linebreaks }}</p>
+
+                    <!-- Multiple Choice Answer -->
+                    {% if a_data.question.question_type == 'multiple_choice' %}
+                    <div class="mt-3">
+                        <div class="mb-2"><strong>选项:</strong></div>
+                        {% for key, value in a_data.specific.options.items %}
+                        <div class="p-2 mb-1 rounded
+                                    {% if key == a_data.answer.answer_data.selected %}bg-light border border-primary{% endif %}
+                                    {% if key == a_data.specific.correct_answer %}border border-success{% endif %}">
+                            <strong>{{ key }}.</strong> {{ value }}
+                            {% if key == a_data.answer.answer_data.selected %}
+                            <span class="badge bg-primary ms-2">您的答案</span>
+                            {% endif %}
+                            {% if key == a_data.specific.correct_answer %}
+                            <span class="badge bg-success ms-2">正确答案</span>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% if a_data.specific.explanation %}
+                    <div class="alert alert-info mt-3">
+                        <strong><i class="bi bi-info-circle"></i> 解析:</strong><br>
+                        {{ a_data.specific.explanation }}
+                    </div>
+                    {% endif %}
+
+                    <!-- True/False Answer -->
+                    {% elif a_data.question.question_type == 'true_false' %}
+                    <div class="mt-3">
+                        <p><strong>您的答案:</strong>
+                            <span class="badge {% if a_data.answer.answer_data.selected == 'true' %}bg-primary{% else %}bg-secondary{% endif %}">
+                                {% if a_data.answer.answer_data.selected == 'true' %}正确{% else %}错误{% endif %}
+                            </span>
+                        </p>
+                        <p><strong>正确答案:</strong>
+                            <span class="badge bg-success">
+                                {% if a_data.specific.correct_answer %}正确{% else %}错误{% endif %}
+                            </span>
+                        </p>
+                    </div>
+                    {% if a_data.specific.explanation %}
+                    <div class="alert alert-info mt-3">
+                        <strong><i class="bi bi-info-circle"></i> 解析:</strong><br>
+                        {{ a_data.specific.explanation }}
+                    </div>
+                    {% endif %}
+
+                    <!-- Code Answer -->
+                    {% elif a_data.question.question_type == 'code' %}
+                    <div class="mt-3">
+                        <div class="mb-2"><strong>您的代码:</strong></div>
+                        <pre class="bg-light p-3 rounded"><code>{{ a_data.answer.answer_data.code }}</code></pre>
+                    </div>
+                    {% if a_data.answer.feedback %}
+                    <div class="alert {% if a_data.answer.is_correct %}alert-success{% else %}alert-warning{% endif %} mt-3">
+                        <strong><i class="bi bi-terminal"></i> 执行结果:</strong><br>
+                        {{ a_data.answer.feedback|linebreaks }}
+                    </div>
+                    {% endif %}
+                    {% if a_data.specific.explanation %}
+                    <div class="alert alert-info mt-3">
+                        <strong><i class="bi bi-lightbulb"></i> 解题思路:</strong><br>
+                        {{ a_data.specific.explanation|linebreaks }}
+                    </div>
+                    {% endif %}
+
+                    <!-- Essay Answer -->
+                    {% elif a_data.question.question_type == 'essay' %}
+                    <div class="mt-3">
+                        <div class="mb-2"><strong>您的答案:</strong></div>
+                        <div class="bg-light p-3 rounded">
+                            {{ a_data.answer.answer_data.text|linebreaks }}
+                        </div>
+                    </div>
+                    {% if a_data.answer.points_awarded is not None %}
+                    <div class="alert alert-success mt-3">
+                        <strong><i class="bi bi-check-circle"></i> 已评分</strong>
+                        {% if a_data.answer.feedback %}
+                        <br>{{ a_data.answer.feedback|linebreaks }}
+                        {% endif %}
+                    </div>
+                    {% else %}
+                    <div class="alert alert-warning mt-3">
+                        <i class="bi bi-clock"></i> 该题需要教师手动评分，请稍后查看
+                    </div>
+                    {% endif %}
+                    {% if a_data.specific.sample_answer %}
+                    <div class="alert alert-info mt-3">
+                        <strong><i class="bi bi-file-text"></i> 参考答案:</strong><br>
+                        {{ a_data.specific.sample_answer|linebreaks }}
+                    </div>
+                    {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

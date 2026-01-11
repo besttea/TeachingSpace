@@ -1,0 +1,153 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ exam.title }} - Python Learning Platform{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h2><i class="bi bi-clipboard-check"></i> {{ exam.title }}</h2>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Exam Information -->
+        <div class="col-md-8">
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5 class="card-title">考试说明</h5>
+                    <p class="card-text">{{ exam.description }}</p>
+
+                    <hr>
+
+                    <h6>考试信息</h6>
+                    <ul class="list-unstyled">
+                        <li><i class="bi bi-clock"></i> <strong>考试时长:</strong> {{ exam.duration_minutes }} 分钟</li>
+                        <li><i class="bi bi-question-circle"></i> <strong>题目数量:</strong> {{ exam.questions.count }} 道</li>
+                        <li><i class="bi bi-star"></i> <strong>总分:</strong> {{ total_points }} 分</li>
+                        <li><i class="bi bi-trophy"></i> <strong>及格分数:</strong> {{ exam.passing_score }}%</li>
+                        <li><i class="bi bi-arrow-repeat"></i> <strong>最大尝试次数:</strong> {{ exam.max_attempts }}</li>
+                        <li><i class="bi bi-shuffle"></i> <strong>题目顺序:</strong> {% if exam.randomize_questions %}随机打乱{% else %}固定顺序{% endif %}</li>
+                        <li><i class="bi bi-eye"></i> <strong>结果显示:</strong> {% if exam.show_results_immediately %}提交后立即显示{% else %}稍后显示{% endif %}</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Previous Attempts -->
+            {% if attempts %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5 class="card-title">历史记录</h5>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>尝试次数</th>
+                                    <th>得分</th>
+                                    <th>状态</th>
+                                    <th>提交时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for attempt in attempts %}
+                                <tr>
+                                    <td>第 {{ attempt.attempt_number }} 次</td>
+                                    <td>
+                                        {% if attempt.score is not None %}
+                                        <span class="{% if attempt.is_passing %}text-success{% else %}text-danger{% endif %} fw-bold">
+                                            {{ attempt.score }}%
+                                        </span>
+                                        {% else %}
+                                        <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if attempt.is_passing %}
+                                        <span class="badge bg-success">通过</span>
+                                        {% else %}
+                                        <span class="badge bg-danger">未通过</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ attempt.end_time|date:"Y-m-d H:i" }}</td>
+                                    <td>
+                                        <a href="{% url 'examination:exam-results' attempt.id %}" class="btn btn-sm btn-outline-primary">
+                                            <i class="bi bi-eye"></i> 查看详情
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Action Panel -->
+        <div class="col-md-4">
+            <div class="card shadow">
+                <div class="card-body">
+                    <h5 class="card-title">开始考试</h5>
+
+                    <div class="mb-3">
+                        <p class="mb-1">
+                            <strong>您的进度:</strong>
+                        </p>
+                        <div class="progress mb-2">
+                            <div class="progress-bar" role="progressbar"
+                                 style="width: {{ attempt_count|div:exam.max_attempts|mul:100 }}%"
+                                 aria-valuenow="{{ attempt_count }}"
+                                 aria-valuemin="0"
+                                 aria-valuemax="{{ exam.max_attempts }}">
+                            </div>
+                        </div>
+                        <small class="text-muted">
+                            已使用 {{ attempt_count }} / {{ exam.max_attempts }} 次机会
+                        </small>
+                    </div>
+
+                    {% if ongoing_attempt %}
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i> 您有一个进行中的考试
+                    </div>
+                    <a href="{% url 'examination:exam-take' exam.id ongoing_attempt.id %}"
+                       class="btn btn-warning w-100 mb-2">
+                        <i class="bi bi-play-circle"></i> 继续考试
+                    </a>
+                    {% elif can_attempt %}
+                    <a href="{% url 'examination:exam-start' exam.id %}"
+                       class="btn btn-primary w-100 mb-2"
+                       onclick="return confirm('确定要开始考试吗？一旦开始，计时器将启动。')">
+                        <i class="bi bi-play-fill"></i> 开始新考试
+                    </a>
+                    {% else %}
+                    <div class="alert alert-danger">
+                        您已达到最大尝试次数
+                    </div>
+                    {% endif %}
+
+                    <a href="{% url 'examination:exam-list' %}" class="btn btn-outline-secondary w-100">
+                        <i class="bi bi-arrow-left"></i> 返回列表
+                    </a>
+                </div>
+            </div>
+
+            <!-- Quick Tips -->
+            <div class="card mt-3">
+                <div class="card-body">
+                    <h6 class="card-title"><i class="bi bi-lightbulb"></i> 考试提示</h6>
+                    <ul class="small">
+                        <li>确保网络连接稳定</li>
+                        <li>答案会自动保存</li>
+                        <li>时间到会自动提交</li>
+                        <li>编程题需要通过测试用例</li>
+                        <li>可以随时提交考试</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

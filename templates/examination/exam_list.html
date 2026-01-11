@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+
+{% block title %}考试列表 - Python Learning Platform{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h2><i class="bi bi-clipboard-check"></i> 可用考试</h2>
+            <p class="text-muted">选择一个考试开始测试您的Python知识</p>
+        </div>
+    </div>
+
+    {% if exams %}
+    <div class="row">
+        {% for exam in exams %}
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title">{{ exam.title }}</h5>
+                    <p class="card-text text-muted">{{ exam.description|truncatewords:20 }}</p>
+
+                    <div class="mb-3">
+                        <small class="text-muted">
+                            <i class="bi bi-clock"></i> {{ exam.duration_minutes }} 分钟
+                            &nbsp;|&nbsp;
+                            <i class="bi bi-question-circle"></i> {{ exam.question_count }} 道题
+                            &nbsp;|&nbsp;
+                            <i class="bi bi-trophy"></i> 及格线: {{ exam.passing_score }}%
+                        </small>
+                    </div>
+
+                    <div class="mb-3">
+                        <span class="badge bg-info">
+                            已尝试: {{ exam.user_attempts }} / {{ exam.max_attempts }}
+                        </span>
+                    </div>
+
+                    <a href="{% url 'examination:exam-detail' exam.id %}" class="btn btn-primary w-100">
+                        <i class="bi bi-info-circle"></i> 查看详情
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Pagination -->
+    {% if is_paginated %}
+    <nav aria-label="Page navigation">
+        <ul class="pagination justify-content-center">
+            {% if page_obj.has_previous %}
+            <li class="page-item">
+                <a class="page-link" href="?page={{ page_obj.previous_page_number }}">上一页</a>
+            </li>
+            {% else %}
+            <li class="page-item disabled">
+                <span class="page-link">上一页</span>
+            </li>
+            {% endif %}
+
+            <li class="page-item disabled">
+                <span class="page-link">第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页</span>
+            </li>
+
+            {% if page_obj.has_next %}
+            <li class="page-item">
+                <a class="page-link" href="?page={{ page_obj.next_page_number }}">下一页</a>
+            </li>
+            {% else %}
+            <li class="page-item disabled">
+                <span class="page-link">下一页</span>
+            </li>
+            {% endif %}
+        </ul>
+    </nav>
+    {% endif %}
+
+    {% else %}
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle"></i> 目前没有可用的考试。
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

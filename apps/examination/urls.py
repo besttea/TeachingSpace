@@ -1,0 +1,21 @@
+from django.urls import path
+from . import views
+
+app_name = 'examination'
+
+urlpatterns = [
+    # Exam list and detail
+    path('', views.ExamListView.as_view(), name='exam-list'),
+    path('<int:pk>/', views.ExamDetailView.as_view(), name='exam-detail'),
+
+    # Exam taking flow
+    path('<int:pk>/start/', views.start_exam, name='exam-start'),
+    path('<int:exam_id>/take/<int:attempt_id>/', views.TakeExamView.as_view(), name='exam-take'),
+
+    # AJAX endpoints
+    path('api/save-answer/', views.save_answer, name='save-answer'),
+    path('api/submit/', views.submit_exam, name='submit-exam'),
+
+    # Results
+    path('results/<int:attempt_id>/', views.ExamResultsView.as_view(), name='exam-results'),
+]

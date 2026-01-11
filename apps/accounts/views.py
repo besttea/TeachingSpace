@@ -9,7 +9,7 @@ from datetime import timedelta
 from .models import User, StudentProfile
 from apps.learning.models import Enrollment, LessonProgress
 from apps.training.models import Submission
-from apps.examination.models import ExamAttempt
+# from apps.examination.models import ExamAttempt  # TODO: Implement Examination models
 
 
 def register_view(request):
