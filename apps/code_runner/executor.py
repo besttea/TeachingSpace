@@ -60,26 +60,9 @@ class CodeExecutor:
                 'error': f'Invalid execution mode: {mode}'
             }
 
-    def _execute_restricted(self, code):
-        """
-        Execute code using RestrictedPython with basic sandboxing.
-
-        This mode is fast but limited - suitable for learning lessons.
-        Restricted features:
-        - No file I/O
-        - No network access
-        - No subprocess execution
-        - Limited imports
-        """
-        output_buffer = io.StringIO()
-        error_buffer = io.StringIO()
-
-        start_time = time.time()
-        status = 'success'
-        error_message = None
-
-        # Restricted globals - only safe built-ins
-        safe_builtins = {
+    def _get_safe_builtins(self):
+        """Return a dictionary of safe built-ins."""
+        return {
             'print': print,
             'len': len,
             'range': range,
@@ -111,7 +94,8 @@ class CodeExecutor:
             }
         }
 
-        # Check for prohibited operations
+    def _check_prohibited_keywords(self, code):
+        """Check code for prohibited keywords."""
         prohibited_keywords = [
             'import os',
             'import sys',
@@ -127,40 +111,64 @@ class CodeExecutor:
         code_lower = code.lower()
         for keyword in prohibited_keywords:
             if keyword in code_lower:
-                return {
-                    'output': '',
-                    'status': 'error',
-                    'execution_time': 0,
-                    'error': f'Prohibited operation detected: {keyword}'
-                }
+                return f'Prohibited operation detected: {keyword}'
+        return None
 
+    def _execute_restricted(self, code):
+        """
+        Execute code using RestrictedPython with basic sandboxing.
+        
+        This mode is fast but limited - suitable for learning lessons.
+        Restricted features:
+        - No file I/O
+        - No network access
+        - No subprocess execution
+        - Limited imports
+        """
+        output_buffer = io.StringIO()
+        error_buffer = io.StringIO()
+        
+        start_time = time.time()
+        status = 'success'
+        error_message = None
+        
+        # Check for prohibited operations
+        error_msg = self._check_prohibited_keywords(code)
+        if error_msg:
+            return {
+                'output': '',
+                'status': 'error',
+                'execution_time': 0,
+                'error': error_msg
+            }
+            
         try:
             # Redirect stdout and stderr
             with redirect_stdout(output_buffer), redirect_stderr(error_buffer):
                 # Create a restricted namespace
-                namespace = {'__builtins__': safe_builtins}
-
+                namespace = {'__builtins__': self._get_safe_builtins()}
+                
                 # Execute the code
                 exec(code, namespace)
-
+                
             output = output_buffer.getvalue()
             errors = error_buffer.getvalue()
-
+            
             if errors:
                 output += '\n' + errors
-
+                
         except Exception as e:
             status = 'error'
             error_message = f'{type(e).__name__}: {str(e)}\n\n{traceback.format_exc()}'
             output = error_message
-
+            
         end_time = time.time()
         execution_time = (end_time - start_time) * 1000  # Convert to milliseconds
-
+        
         # Truncate output if too long
         if len(output) > self.max_output_length:
             output = output[:self.max_output_length] + '\n... (output truncated)'
-
+            
         return {
             'output': output,
             'status': status,
@@ -195,7 +203,7 @@ class CodeExecutor:
 
         Args:
             code: Python code to execute
-            test_cases: List of test case dictionaries with 'input' and 'expected_output'
+            test_cases: List of test case dictionaries with 'input' and 'expected'
             timeout: Maximum execution time in seconds
 
         Returns:
@@ -206,20 +214,110 @@ class CodeExecutor:
                 'failed_tests': int,
                 'test_results': list,  # Individual test results
                 'execution_time': float,
-                'error': str
+                'error': str,
+                'output': str
             }
         """
-        # TODO: Implement full test execution
-        # For now, return a placeholder
-        return {
+        output_buffer = io.StringIO()
+        error_buffer = io.StringIO()
+        start_time = time.time()
+        
+        # Initialize results
+        results = {
             'status': 'error',
-            'total_tests': len(test_cases) if test_cases else 0,
+            'total_tests': 0,
             'passed_tests': 0,
             'failed_tests': 0,
             'test_results': [],
             'execution_time': 0,
-            'error': 'Test execution not yet fully implemented'
+            'error': None,
+            'output': ''
         }
+
+        # Handle test_cases format (list or dict with 'tests' key)
+        tests = []
+        if isinstance(test_cases, dict):
+            tests = test_cases.get('tests', [])
+        elif isinstance(test_cases, list):
+            tests = test_cases
+        
+        results['total_tests'] = len(tests)
+        
+        # Check for prohibited operations
+        error_msg = self._check_prohibited_keywords(code)
+        if error_msg:
+            results['error'] = error_msg
+            return results
+
+        try:
+            # Redirect stdout and stderr
+            with redirect_stdout(output_buffer), redirect_stderr(error_buffer):
+                # Create a restricted namespace
+                namespace = {'__builtins__': self._get_safe_builtins()}
+                
+                # Execute the user code first (to define functions)
+                exec(code, namespace)
+                
+                # Run tests
+                for test in tests:
+                    test_input = test.get('input')
+                    expected = test.get('expected')
+                    if expected is None:
+                        expected = test.get('expected_output') # Handle both keys
+                        
+                    test_result = {
+                        'input': test_input,
+                        'expected': expected,
+                        'actual': None,
+                        'passed': False,
+                        'error': None,
+                        'description': test.get('description', '')
+                    }
+                    
+                    try:
+                        # Evaluate the test input expression in the same namespace
+                        actual = eval(test_input, namespace)
+                        test_result['actual'] = actual
+                        
+                        # Compare results
+                        if actual == expected:
+                            test_result['passed'] = True
+                            results['passed_tests'] += 1
+                        else:
+                            test_result['passed'] = False
+                            results['failed_tests'] += 1
+                            
+                    except Exception as e:
+                        test_result['passed'] = False
+                        test_result['error'] = str(e)
+                        results['failed_tests'] += 1
+                    
+                    results['test_results'].append(test_result)
+                    
+            # Determine final status
+            if results['failed_tests'] == 0 and results['passed_tests'] == results['total_tests']:
+                results['status'] = 'passed'
+            elif results['failed_tests'] > 0:
+                results['status'] = 'failed'
+            else:
+                results['status'] = 'error' # Should not happen if total > 0
+                
+            output = output_buffer.getvalue()
+            errors = error_buffer.getvalue()
+            
+            if errors:
+                output += '\n' + errors
+            
+            results['output'] = output
+
+        except Exception as e:
+            results['status'] = 'error'
+            results['error'] = f'{type(e).__name__}: {str(e)}\n\n{traceback.format_exc()}'
+            
+        end_time = time.time()
+        results['execution_time'] = (end_time - start_time) * 1000
+        
+        return results
 
 
 # Convenience function for simple execution

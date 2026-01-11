@@ -34,13 +34,13 @@ class TrainingAgent(BaseAgent):
             "starter_code": "def function_name():\\n    pass",
             "solution_code": "def function_name():\\n    # solution",
             "test_cases": [
-                {{"input": "args", "expected_output": "result", "is_hidden": false}}
+                {"input": "function_name(arg1, arg2)", "expected_output": "result", "is_hidden": false}
             ],
             "hints": [
-                {{"order": 1, "content": "First hint...", "points_penalty": 2}},
-                {{"order": 2, "content": "Second hint...", "points_penalty": 5}}
+                {"order": 1, "content": "First hint...", "points_penalty": 2},
+                {"order": 2, "content": "Second hint...", "points_penalty": 5}
             ]
-        }}
+        }
         """
         
         prompt = f"""
@@ -51,7 +51,7 @@ class TrainingAgent(BaseAgent):
         2. {difficulty} difficulty level.
         3. Provide starter code skeleton.
         4. Provide working solution code.
-        5. Include at least 3 test cases (edge cases included).
+        5. Include at least 3 test cases (edge cases included). The 'input' field MUST be a valid python function call string (e.g. "my_func(1, 2)").
         6. Provide 3 progressive hints.
         """
         
