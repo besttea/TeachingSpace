@@ -64,7 +64,13 @@
         font-family: 'Courier New', Consolas, Monaco, monospace;
         font-size: 0.9rem;
         overflow-x: auto;
-        white-space: pre;
+        white-space: pre-wrap !important;
+    }
+
+    .code-cell .code-source code {
+        white-space: pre-wrap !important;
+        display: block !important;
+        line-height: 1.5;
     }
 
     .code-cell .code-output {
@@ -248,7 +254,7 @@
                     </button>
                     {% endif %}
                 </div>
-                <div class="code-source"><code class="language-python">{{ cell.data.source }}</code></div>
+                <div class="code-source" style="white-space: pre-wrap;"><code style="white-space: pre-wrap; display: block;">{{ cell.data.source }}</code></div>
                 {% if cell.data.output %}
                 <div class="code-output {{ cell.data.status|default:'success' }}">{{ cell.data.output }}</div>
                 {% endif %}
@@ -353,9 +359,6 @@ function notebookViewer() {
         executing: null,
 
         init() {
-            // Render syntax highlighting for code blocks
-            Prism.highlightAll();
-
             // Render KaTeX math
             if (typeof renderMathInElement !== 'undefined') {
                 renderMathInElement(document.body, {

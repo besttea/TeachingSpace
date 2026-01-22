@@ -116,6 +116,27 @@
         min-height: 100px;
     }
 
+    /* Code cell display styles */
+    .cell-content pre {
+        margin: 0;
+        padding: 1rem;
+        background: #282c34;
+        border-radius: 4px;
+        overflow-x: auto;
+    }
+
+    .cell-content pre code,
+    .cell-content pre code.language-python {
+        display: block !important;
+        font-family: 'Courier New', Consolas, Monaco, monospace !important;
+        font-size: 0.9rem;
+        line-height: 1.5;
+        white-space: pre !important;
+        word-wrap: normal !important;
+        overflow-wrap: normal !important;
+        color: #abb2bf;
+    }
+
     .add-cell-menu {
         display: flex;
         justify-content: center;
@@ -255,7 +276,7 @@
                     <div class="markdown-content" x-html="renderMarkdown(`{{ cell.data.markdown|escapejs }}`)"></div>
 
                     {% elif cell.cell_type == 'code' %}
-                    <pre><code class="language-python">{{ cell.data.source }}</code></pre>
+                    <pre style="margin: 0; padding: 1rem; background: #282c34; border-radius: 4px; overflow-x: auto;"><code style="display: block; white-space: pre-wrap; word-break: break-word; font-family: 'Courier New', monospace; color: #abb2bf; line-height: 1.5;">{{ cell.data.source }}</code></pre>
 
                     {% elif cell.cell_type == 'image' %}
                     {% if cell.data.url %}
@@ -378,6 +399,7 @@ function notebookEditor() {
     return {
         editingCell: null,
         cellData: {},
+        cellsData: {{ cells_json|safe }},  // Store all cells data
         sortable: null,
 
         init() {
@@ -391,9 +413,6 @@ function notebookEditor() {
                     this.updateCellOrders();
                 }
             });
-
-            // Syntax highlighting
-            Prism.highlightAll();
         },
 
         renderMarkdown(markdown) {
@@ -470,36 +489,17 @@ function notebookEditor() {
         },
 
         editCell(cellId) {
-            // Get cell element
-            const cellElement = document.querySelector(`[data-cell-id="${cellId}"]`);
-            const cellType = cellElement.dataset.cellType;
+            // Find cell data from stored cellsData
+            const cell = this.cellsData.find(c => c.id === cellId);
 
-            // Get current cell data from the DOM
-            this.cellData = {};
-
-            if (cellType === 'text') {
-                // Extract markdown from the rendered content (not ideal, but works)
-                const markdownContent = cellElement.querySelector('textarea');
-                if (markdownContent) {
-                    this.cellData.markdown = markdownContent.value;
-                } else {
-                    // Try to get from data attribute or default
-                    this.cellData.markdown = '# Edit this cell...';
-                }
-            } else if (cellType === 'code') {
-                const codeElement = cellElement.querySelector('code');
-                this.cellData.source = codeElement ? codeElement.textContent : '';
-            } else if (cellType === 'image') {
-                this.cellData.url = '';
-                this.cellData.caption = '';
-                this.cellData.alt_text = '';
-            } else if (cellType === 'video') {
-                this.cellData.url = '';
-                this.cellData.source_type = 'youtube';
-                this.cellData.caption = '';
+            if (cell) {
+                // Clone the cell data to avoid mutating the original
+                this.cellData = JSON.parse(JSON.stringify(cell.data));
+                this.editingCell = cellId;
+            } else {
+                console.error('Cell not found:', cellId);
+                alert('Error: Cell data not found');
             }
-
-            this.editingCell = cellId;
         },
 
         async saveCell(cellId) {
