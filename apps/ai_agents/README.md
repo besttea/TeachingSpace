@@ -4,11 +4,12 @@ This module contains AI-powered agents for automated content generation in the P
 
 ## Overview
 
-The AI Agents system uses Anthropic's Claude API to generate educational content for three main areas:
+The AI Agents system uses Anthropic's Claude API to generate educational content and provide interactive assistance. The system includes:
 
 1. **Learning Agent** - Generates lesson content, explanations, and code examples
 2. **Training Agent** - Creates coding exercises, test cases, and hints
 3. **Examination Agent** - Generates exam questions and evaluates student submissions
+4. **Chat AI Service** - Interactive learning assistant with conversation history management
 
 ## Architecture
 
@@ -45,6 +46,14 @@ Handles assessment content:
 - Short answer questions
 - Automated grading for objective questions
 - Feedback generation for student submissions
+
+#### Chat AI Service (`apps/chat/ai_service.py`)
+Provides interactive learning assistance:
+- Real-time Q&A with students
+- Context-aware responses based on student progress
+- Resource recommendations from ClassLib
+- Conversation history management
+- Multi-turn conversations with memory
 
 ## Usage
 
@@ -103,13 +112,31 @@ Templates support variable substitution:
 Set environment variables in `.env`:
 
 ```bash
+# Required
 ANTHROPIC_API_KEY=your-api-key
+
+# Optional (with defaults)
 ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+ANTHROPIC_BASE_URL=  # Optional: Custom API endpoint (e.g., for proxies)
 AI_MAX_TOKENS=4096
 AI_TEMPERATURE=0.7
 AI_CACHE_ENABLED=True
 AI_COST_LIMIT_DAILY=50.00
 ```
+
+### Custom API Endpoints
+
+If you're using a custom API endpoint (e.g., a proxy or alternative provider), set:
+
+```bash
+ANTHROPIC_BASE_URL=https://your-custom-endpoint.com/anthropic
+```
+
+This is useful for:
+- Using API proxies
+- Implementing custom rate limiting
+- Adding request logging
+- Testing with mock endpoints
 
 ## Content Validation
 

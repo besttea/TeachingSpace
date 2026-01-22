@@ -22,6 +22,20 @@ A comprehensive web-based platform for learning Python programming with interact
 - **Points System**: Earn points for successful solutions
 - **Difficulty Levels**: Beginner, Intermediate, and Advanced exercises
 
+### 📝 Examination Class
+- **Timed Assessments**: Create exams with time limits
+- **Multiple Question Types**: Multiple choice, coding, and short answer
+- **Auto-Grading**: Automated evaluation with AI assistance
+- **Results Analytics**: Detailed performance analysis
+- **Certificate Generation**: PDF certificates for completed exams
+
+### 💬 AI Learning Assistant (Chat)
+- **Interactive Chat**: Ask questions and get instant AI-powered answers
+- **Resource Recommendations**: AI suggests relevant learning materials
+- **Conversation History**: Save and manage multiple chat sessions
+- **AJAX-Based Interface**: Smooth conversation experience without page reloads
+- **Context-Aware**: Understands your learning needs and progress
+
 ### 🔐 Authentication System
 - User registration and login
 - Role-based access (Student, Instructor, Admin)
@@ -30,9 +44,19 @@ A comprehensive web-based platform for learning Python programming with interact
 
 ### 🛠️ Code Execution Engine
 - **RestrictedPython**: Safe code execution for learning lessons
+- **Dual Test Mode Support**:
+  - stdin/stdout testing for input/output programs
+  - Function-based testing for algorithm challenges
 - **Sandboxing**: Restricted imports and operations for security
 - **Resource Limits**: Timeout and memory controls
 - Docker-based execution (planned) for advanced features
+
+### 🤖 AI-Powered Features
+- **Content Generation**: AI agents for creating lessons, exercises, and exams
+- **Learning Agent**: Generates lesson content and code examples
+- **Training Agent**: Creates coding exercises with test cases and hints
+- **Examination Agent**: Generates exam questions and evaluates answers
+- **Custom API Support**: Configure custom API endpoints for LLM services
 
 ## Technology Stack
 
@@ -205,6 +229,12 @@ TeachingSpace/
 - `POST /training/exercises/<slug>/submit/` - Submit solution
 - `POST /training/api/hints/<id>/view/` - View hint
 
+### Chat API
+- `POST /chat/api/send/` - Send message and get AI response
+- `GET /chat/api/conversation/<id>/` - Get conversation messages
+- `POST /chat/api/conversation/new/` - Create new conversation
+- `DELETE /chat/api/conversation/<id>/delete/` - Delete conversation
+
 ## Development
 
 ### Running Tests
@@ -231,16 +261,27 @@ python manage.py migrate
 python manage.py showmigrations
 ```
 
+## Recent Updates
+
+### Version 1.1.0 (Latest)
+- ✅ **Examination Class**: Full implementation with auto-grading and AI evaluation
+- ✅ **AI Chat Assistant**: Interactive learning assistant with conversation history
+- ✅ **Enhanced Code Executor**: Dual-mode testing (stdin/stdout and function-based)
+- ✅ **AI Agents**: Learning, Training, and Examination agents for content generation
+- ✅ **Custom API Support**: Configure custom LLM API endpoints
+- ✅ **Notebook Import**: Import Jupyter notebooks with automatic chapter/lesson detection
+- ✅ **Cell Handlers**: Modular architecture for different cell types
+- 🔧 **Bug Fixes**: Template syntax errors, type errors in views
+
 ## Planned Features
 
-- 🎯 **Examination Class**: Timed assessments with certificates
 - 🐳 **Docker Execution**: Full isolation for code execution
 - 🎬 **Manim Integration**: AI-generated educational videos
 - ⚡ **Celery Tasks**: Async processing for heavy operations
-- 🤖 **AI Agents**: Content generation using Claude API
 - 📊 **Analytics Dashboard**: Advanced progress tracking
 - 💬 **Discussion Forums**: Student collaboration
 - 🏆 **Gamification**: Badges, leaderboards, achievements
+- 📱 **Mobile App**: Native iOS and Android applications
 
 ## Contributing
 
@@ -272,27 +313,32 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Project Status
 
-**Current Version**: 1.0.0-alpha
+**Current Version**: 1.1.0
 
 ### Completed ✅
-- Authentication system
-- Learning Class with notebook interface
-- Training Class with exercises and auto-grading
-- Code execution engine (RestrictedPython)
-- Responsive UI and templates
-- Progress tracking
+- ✅ **Authentication System**: User registration, login, role-based access
+- ✅ **Learning Class**: Jupyter-style notebook interface with cell management
+- ✅ **Training Class**: Coding exercises with auto-grading and hints
+- ✅ **Examination Class**: Timed assessments with multiple question types
+- ✅ **Code Execution Engine**: RestrictedPython with dual-mode testing
+- ✅ **AI Chat Assistant**: Interactive Q&A with conversation history
+- ✅ **AI Agents**: Content generation for lessons, exercises, and exams
+- ✅ **Notebook Import**: Import from Jupyter .ipynb files
+- ✅ **Progress Tracking**: Course progress and completion tracking
+- ✅ **Responsive UI**: Bootstrap 5 with modern design
 
 ### In Progress 🚧
-- Examination Class
-- Docker-based execution
-- Manim video generation
-- Celery integration
+- 🚧 **Video Generation**: Manim integration for educational videos
+- 🚧 **Docker Execution**: Full isolation for code execution
+- 🚧 **Celery Integration**: Async task processing
+- 🚧 **Advanced Analytics**: Detailed learning analytics dashboard
 
 ### Planned 📋
-- AI content generation
-- Advanced analytics
-- Social features
-- Mobile app
+- 📋 **Discussion Forums**: Student collaboration and Q&A
+- 📋 **Gamification**: Badges, achievements, and leaderboards
+- 📋 **Mobile App**: Native iOS and Android applications
+- 📋 **Social Features**: Student profiles and networking
+- 📋 **Content Marketplace**: Share and sell courses
 
 ---
 

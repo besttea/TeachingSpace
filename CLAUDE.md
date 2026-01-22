@@ -358,7 +358,7 @@ Evaluate Answer → Calculate Score → Generate Feedback → Save Result
 - `User`: Custom user model with user_type (student/instructor/admin)
 - `StudentProfile`: Extended profile with points, experience level, streak tracking
 
-### Learning App (To be implemented)
+### Learning App (✅ Implemented)
 - `Course`: Course container with difficulty levels
 - `Chapter`: Sections within courses
 - `Lesson`: Notebook-style lesson container
@@ -395,13 +395,13 @@ Evaluate Answer → Calculate Score → Generate Feedback → Save Result
   - Code cells executed
   - Progress percentage
 
-### Training App (To be implemented)
+### Training App (✅ Implemented)
 - `Exercise`: Coding challenges
 - `Hint`: Progressive hints
 - `Submission`: Student code submissions
 - `HintUsage`: Track hint views
 
-### Examination App (To be implemented)
+### Examination App (✅ Implemented)
 - `Exam`: Timed assessments
 - `Question`: Base question model (polymorphic)
 - `MultipleChoiceQuestion`, `CodingQuestion`, `ShortAnswerQuestion`
@@ -409,7 +409,24 @@ Evaluate Answer → Calculate Score → Generate Feedback → Save Result
 - `Answer`: Student answers
 - `Certificate`: Generated PDFs
 
-### AI Agents App (To be implemented)
+### Chat App (✅ Implemented)
+
+- `ChatConversation`: Chat conversation sessions
+  - User reference
+  - Title (auto-generated from first message)
+  - Created and updated timestamps
+  - Active status
+- `ChatMessage`: Individual messages in conversations
+  - Role (user, assistant, system)
+  - Content text
+  - Metadata (suggested resources)
+  - Created timestamp
+- `LearningResource`: Available learning resources
+  - Title, filename, file path
+  - Description and topics
+  - Difficulty level
+
+### AI Agents App (✅ Partially Implemented)
 - `AIGenerationRequest`: Track content generation requests
   - Request type (lesson, exercise, question, **video_script**)
   - Input parameters (topic, difficulty, etc.)
@@ -477,41 +494,49 @@ Create a `.env` file based on `.env.example`:
 - ✅ Custom User model and StudentProfile
 - ✅ Database migrations applied
 - ✅ Admin interface for User management
+- ✅ Authentication views (register, login, dashboard)
+- ✅ **Notebook-Style Interface**:
+  - ✅ Cell model and database schema
+  - ✅ Cell type handlers (text, code, image, video)
+  - ✅ Frontend notebook editor with cell operations
+  - ✅ Drag-and-drop cell reordering
+  - ✅ Real-time cell execution
+  - ✅ Markdown + LaTeX rendering
+  - ✅ Notebook import from .ipynb files
+- ✅ Learning app models and views
+- ✅ Training app models and views
+- ✅ Examination app models and views
+- ✅ Code execution engine (RestrictedPython with dual-mode testing)
+- ✅ **AI Chat Assistant**:
+  - ✅ Chat interface with conversation history
+  - ✅ AI-powered responses with resource recommendations
+  - ✅ AJAX-based conversation management
+  - ✅ Custom API endpoint support
+- ✅ **AI Agent System**:
+  - ✅ Base agent class with Anthropic API integration
+  - ✅ Learning agent (lesson generation)
+  - ✅ Training agent (exercise generation)
+  - ✅ Examination agent (question generation & evaluation)
+  - ✅ Custom API base URL support
 
 **In Progress/Pending:**
-- ⏳ Authentication views (register, login, dashboard)
-- ⏳ **Notebook-Style Interface**:
-  - ⏳ Cell model and database schema
-  - ⏳ Cell type handlers (text, code, image, video)
-  - ⏳ Frontend notebook editor with cell operations
-  - ⏳ Drag-and-drop cell reordering
-  - ⏳ Real-time cell execution
-  - ⏳ Markdown + LaTeX rendering
-  - ⏳ Version control and undo/redo
-  - ⏳ Export/import (JSON, PDF, .ipynb)
-- ⏳ Learning app models and views
-- ⏳ Training app models and views
-- ⏳ Examination app models and views
-- ⏳ Code execution engine
+- ⏳ Version control and undo/redo for cells
+- ⏳ Export/import (PDF, standalone Python script)
+- ⏳ Frontend templates refinement
 - ⏳ **Video Generation System**:
   - ⏳ Manim integration and rendering pipeline
-  - ⏳ AI video script generation
+  - ⏳ AI video script generation (Video Agent)
   - ⏳ Async video rendering with Celery
   - ⏳ Video storage and CDN integration
   - ⏳ Thumbnail generation
   - ⏳ Video cell display and playback
-- ⏳ Frontend templates
-- ⏳ Docker configuration
-- ⏳ **AI Agent System**:
-  - ⏳ Base agent class with Anthropic API integration
-  - ⏳ Learning agent (lesson generation)
-  - ⏳ Training agent (exercise generation)
-  - ⏳ Examination agent (question generation & evaluation)
-  - ⏳ **Video agent (Manim script generation)**
+- ⏳ Docker configuration for isolated code execution
+- ⏳ **Advanced AI Features**:
   - ⏳ Prompt template management
   - ⏳ Content validation pipeline
   - ⏳ AI generation tracking and analytics
   - ⏳ Cost monitoring and rate limiting
+  - ⏳ Batch content generation
 
 ## Next Steps
 
