@@ -8,8 +8,10 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 import json
+from django.core.serializers.json import DjangoJSONEncoder
 
 from .models import Course, Chapter, Lesson, Cell, CellVersion, Enrollment, LessonProgress
+from .cell_handlers import get_handler
 
 
 class CourseListView(ListView):
@@ -131,8 +133,21 @@ class LessonEditView(LoginRequiredMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['cells'] = self.object.cells.all().order_by('order')
+        cells = self.object.cells.all().order_by('order')
+        context['cells'] = cells
         context['is_editing'] = True
+        
+        # Serialize cells for JS
+        cells_data = []
+        for cell in cells:
+            cells_data.append({
+                'id': cell.id,
+                'cell_type': cell.cell_type,
+                'order': cell.order,
+                'data': cell.data
+            })
+        context['cells_json'] = json.dumps(cells_data, cls=DjangoJSONEncoder)
+        
         return context
 
 
@@ -163,12 +178,20 @@ def create_cell(request):
             'image': {'url': '', 'caption': '', 'alt_text': ''},
             'video': {'url': '', 'source_type': 'youtube', 'caption': ''},
         }
+        
+        cell_data = default_data.get(cell_type, {})
+        
+        # Validate and process using handler
+        handler = get_handler(cell_type)
+        if handler:
+            handler.validate(cell_data)
+            cell_data = handler.process(cell_data)
 
         cell = Cell.objects.create(
             lesson=lesson,
             cell_type=cell_type,
             order=order,
-            data=default_data.get(cell_type, {}),
+            data=cell_data,
             created_by=request.user
         )
 
@@ -199,6 +222,14 @@ def update_cell(request, pk):
 
         data = json.loads(request.body)
         new_data = data.get('data', {})
+
+        # Validate and process using handler
+        handler = get_handler(cell.cell_type)
+        if handler:
+            # Merge with existing data to ensure required fields exist if partial update
+            # But here we expect full data replacement usually
+            handler.validate(new_data)
+            new_data = handler.process(new_data)
 
         # Save version before updating
         CellVersion.objects.create(

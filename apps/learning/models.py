@@ -226,6 +226,11 @@ class Enrollment(models.Model):
     def __str__(self):
         return f"{self.student.username} enrolled in {self.course.title}"
 
+    @property
+    def completed_lessons_count(self):
+        """Return number of completed lessons"""
+        return self.lesson_progress.filter(is_completed=True).count()
+
     def calculate_progress(self):
         """Calculate course completion percentage"""
         total_lessons = Lesson.objects.filter(

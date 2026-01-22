@@ -177,3 +177,9 @@ MARKDOWNX_MARKDOWN_EXTENSIONS = [
     'markdown.extensions.codehilite',
     'markdown.extensions.fenced_code',
 ]
+
+# AI Configuration
+ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
+ANTHROPIC_MODEL = config('ANTHROPIC_MODEL', default='claude-3-5-sonnet-20241022')
+AI_MAX_TOKENS = config('AI_MAX_TOKENS', default=4096, cast=int)
+AI_TEMPERATURE = config('AI_TEMPERATURE', default=0.7, cast=float)

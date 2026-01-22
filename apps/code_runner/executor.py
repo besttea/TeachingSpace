@@ -32,13 +32,14 @@ class CodeExecutor:
         self.timeout = timeout
         self.max_output_length = max_output_length
 
-    def execute_code(self, code, mode='restricted'):
+    def execute_code(self, code, mode='restricted', stdin_input=''):
         """
         Execute Python code and return results.
 
         Args:
             code: Python code string to execute
             mode: Execution mode ('restricted' or 'docker')
+            stdin_input: Input string for stdin (default: '')
 
         Returns:
             dict: {
@@ -49,9 +50,9 @@ class CodeExecutor:
             }
         """
         if mode == 'restricted':
-            return self._execute_restricted(code)
+            return self._execute_restricted(code, stdin_input)
         elif mode == 'docker':
-            return self._execute_docker(code)
+            return self._execute_docker(code, stdin_input)
         else:
             return {
                 'output': '',
@@ -60,7 +61,7 @@ class CodeExecutor:
                 'error': f'Invalid execution mode: {mode}'
             }
 
-    def _execute_restricted(self, code):
+    def _execute_restricted(self, code, stdin_input=''):
         """
         Execute code using RestrictedPython with basic sandboxing.
 
@@ -73,6 +74,18 @@ class CodeExecutor:
         """
         output_buffer = io.StringIO()
         error_buffer = io.StringIO()
+        
+        # Prepare stdin mock
+        input_lines = stdin_input.splitlines()
+        input_iterator = iter(input_lines)
+
+        def mock_input(prompt=''):
+            if prompt:
+                print(prompt, end='', file=output_buffer)
+            try:
+                return next(input_iterator)
+            except StopIteration:
+                raise EOFError("EOF when reading a line")
 
         start_time = time.time()
         status = 'success'
@@ -81,6 +94,7 @@ class CodeExecutor:
         # Restricted globals - only safe built-ins
         safe_builtins = {
             'print': print,
+            'input': mock_input,
             'len': len,
             'range': range,
             'str': str,
@@ -168,7 +182,7 @@ class CodeExecutor:
             'error': error_message
         }
 
-    def _execute_docker(self, code, test_cases=None):
+    def _execute_docker(self, code, stdin_input='', test_cases=None):
         """
         Execute code in isolated Docker container (to be implemented).
 
@@ -176,6 +190,7 @@ class CodeExecutor:
 
         Args:
             code: Python code to execute
+            stdin_input: Input string for stdin
             test_cases: Optional list of test cases to run
 
         Returns:
@@ -209,16 +224,91 @@ class CodeExecutor:
                 'error': str
             }
         """
-        # TODO: Implement full test execution
-        # For now, return a placeholder
+        if not test_cases:
+            return {
+                'status': 'error',
+                'total_tests': 0,
+                'passed_tests': 0,
+                'failed_tests': 0,
+                'test_results': [],
+                'execution_time': 0,
+                'error': 'No test cases provided'
+            }
+
+        results = []
+        passed_count = 0
+        total_tests = len(test_cases)
+        start_time = time.time()
+        overall_status = 'success'
+        error_message = None
+
+        for i, test in enumerate(test_cases):
+            input_data = test.get('input', '')
+            expected_output = test.get('expected_output', '').strip()
+            
+            # Execute code with input
+            # Temporarily adjust timeout if needed
+            original_timeout = self.timeout
+            self.timeout = timeout
+            
+            try:
+                exec_result = self.execute_code(code, mode='restricted', stdin_input=input_data)
+                
+                actual_output = exec_result['output'].strip()
+                
+                # Check for execution errors first
+                if exec_result['status'] == 'error':
+                    passed = False
+                    overall_status = 'error'
+                    error_message = exec_result.get('error')
+                else:
+                    # Compare output
+                    passed = (actual_output == expected_output)
+                
+                if passed:
+                    passed_count += 1
+                    
+                results.append({
+                    'case_index': i,
+                    'input': input_data,
+                    'expected': expected_output,
+                    'actual': actual_output,
+                    'passed': passed,
+                    'error': exec_result.get('error'),
+                    'is_hidden': test.get('is_hidden', False)
+                })
+
+            except Exception as e:
+                passed = False
+                overall_status = 'error'
+                error_message = str(e)
+                results.append({
+                    'case_index': i,
+                    'input': input_data,
+                    'expected': expected_output,
+                    'actual': '',
+                    'passed': False,
+                    'error': str(e),
+                    'is_hidden': test.get('is_hidden', False)
+                })
+            finally:
+                self.timeout = original_timeout
+
+        end_time = time.time()
+        
+        final_status = 'passed' if passed_count == total_tests else 'failed'
+        if overall_status == 'error' and passed_count == 0:
+            final_status = 'error'
+
         return {
-            'status': 'error',
-            'total_tests': len(test_cases) if test_cases else 0,
-            'passed_tests': 0,
-            'failed_tests': 0,
-            'test_results': [],
-            'execution_time': 0,
-            'error': 'Test execution not yet fully implemented'
+            'status': final_status,
+            'total_tests': total_tests,
+            'passed_tests': passed_count,
+            'failed_tests': total_tests - passed_count,
+            'test_results': results,
+            'execution_time': (end_time - start_time) * 1000,
+            'error': error_message,
+            'message': f'Passed {passed_count}/{total_tests} tests'
         }
 
 

@@ -208,7 +208,7 @@
         </div>
     </div>
 
-    <div x-data="notebookEditor()" x-init="init()">
+    <div x-data="notebookEditor()">
         <!-- Add Cell Menu -->
         <div class="add-cell-menu">
             <button class="add-cell-btn" @click="addCell('text')">
@@ -398,7 +398,31 @@ function notebookEditor() {
 
         renderMarkdown(markdown) {
             if (typeof marked !== 'undefined' && markdown) {
-                return marked.parse(markdown);
+                const html = marked.parse(markdown);
+                // We need to render math after HTML is inserted, but this function just returns string.
+                // Alpine x-html will insert it.
+                // To trigger math rendering, we can use a small timeout or $nextTick if we were inside the component logic.
+                // Since this is just a helper, we'll try to render math on the whole document periodically or rely on init.
+                // Better approach: return html, and use x-effect or watcher in the component to render math.
+                
+                // For now, let's just return HTML. The preview in edit mode might not render math instantly without extra logic.
+                setTimeout(() => {
+                    if (typeof renderMathInElement !== 'undefined') {
+                        const previews = document.querySelectorAll('.markdown-preview');
+                        previews.forEach(el => {
+                            renderMathInElement(el, {
+                                delimiters: [
+                                    {left: '$$', right: '$$', display: true},
+                                    {left: '$', right: '$', display: false},
+                                    {left: '\\[', right: '\\]', display: true},
+                                    {left: '\\(', right: '\\)', display: false}
+                                ]
+                            });
+                        });
+                    }
+                }, 100);
+                
+                return html;
             }
             return markdown || '<p class="text-muted">No content</p>';
         },
