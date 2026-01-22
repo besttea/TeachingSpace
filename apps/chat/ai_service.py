@@ -14,9 +14,20 @@ class ChatAIService:
     """Service for AI-powered chat responses"""
 
     def __init__(self):
-        api_key = os.environ.get('ANTHROPIC_API_KEY') or settings.SECRET_KEY  # Fallback for demo
-        self.client = Anthropic(api_key=api_key) if api_key else None
-        self.model = "claude-3-5-sonnet-20241022"
+        # Get API key from Django settings (which loads from .env via python-decouple)
+        api_key = getattr(settings, 'ANTHROPIC_API_KEY', '')
+        base_url = getattr(settings, 'ANTHROPIC_API_BASE_URL', '')
+
+        # Initialize Anthropic client with optional base_url
+        if api_key:
+            if base_url:
+                self.client = Anthropic(api_key=api_key, base_url=base_url)
+            else:
+                self.client = Anthropic(api_key=api_key)
+        else:
+            self.client = None
+
+        self.model = getattr(settings, 'ANTHROPIC_MODEL', '')
 
     def get_available_resources(self) -> List[Dict[str, Any]]:
         """Get list of available learning resources from Classlib directory"""

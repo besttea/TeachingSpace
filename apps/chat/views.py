@@ -16,17 +16,27 @@ from .ai_service import ChatAIService
 @login_required
 def chat_interface(request):
     """Render the chat interface"""
-    # Get or create active conversation for user
-    conversation = ChatConversation.objects.filter(
-        user=request.user,
-        is_active=True
-    ).first()
+    # Check if a specific conversation is requested
+    conversation_id = request.GET.get('conversation')
 
-    if not conversation:
-        conversation = ChatConversation.objects.create(
-            user=request.user,
-            title="New Chat"
+    if conversation_id:
+        # Load specific conversation
+        conversation = get_object_or_404(
+            ChatConversation,
+            id=conversation_id,
+            user=request.user
         )
+    else:
+        # Get or create most recent conversation for user
+        conversation = ChatConversation.objects.filter(
+            user=request.user
+        ).first()
+
+        if not conversation:
+            conversation = ChatConversation.objects.create(
+                user=request.user,
+                title="新对话"
+            )
 
     # Get recent conversations
     recent_conversations = ChatConversation.objects.filter(

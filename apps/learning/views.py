@@ -62,6 +62,7 @@ class CourseDetailView(DetailView):
                 )
                 context['enrollment'] = enrollment
                 context['progress_percentage'] = enrollment.progress_percentage
+                context['completed_lessons_count'] = enrollment.lesson_progress.filter(is_completed=True).count()
             except Enrollment.DoesNotExist:
                 pass
 

@@ -97,7 +97,7 @@
                         </p>
                         <div class="progress mb-2">
                             <div class="progress-bar" role="progressbar"
-                                 style="width: {{ attempt_count|div:exam.max_attempts|mul:100 }}%"
+                                 style="width: {% widthratio attempt_count exam.max_attempts 100 %}%"
                                  aria-valuenow="{{ attempt_count }}"
                                  aria-valuemin="0"
                                  aria-valuemax="{{ exam.max_attempts }}">
