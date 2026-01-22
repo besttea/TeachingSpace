@@ -34,6 +34,9 @@
         border-bottom: 1px solid #e9ecef;
         cursor: pointer;
         transition: background 0.2s;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
 
     .conversation-item:hover {
@@ -43,6 +46,39 @@
     .conversation-item.active {
         background: #007bff;
         color: white;
+    }
+
+    .conversation-content {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .delete-conversation-btn {
+        opacity: 0;
+        transition: opacity 0.2s;
+        padding: 0.25rem 0.5rem;
+        background: transparent;
+        border: none;
+        color: #dc3545;
+        cursor: pointer;
+        font-size: 1rem;
+    }
+
+    .conversation-item:hover .delete-conversation-btn {
+        opacity: 1;
+    }
+
+    .conversation-item.active .delete-conversation-btn {
+        color: white;
+    }
+
+    .delete-conversation-btn:hover {
+        background: rgba(220, 53, 69, 0.1);
+        border-radius: 0.25rem;
+    }
+
+    .conversation-item.active .delete-conversation-btn:hover {
+        background: rgba(255, 255, 255, 0.2);
     }
 
     .chat-main {
@@ -257,8 +293,15 @@
             <div class="conversation-item {% if conv.id == conversation.id %}active{% endif %}"
                  data-conversation-id="{{ conv.id }}"
                  onclick="loadConversation({{ conv.id }})">
-                <div class="fw-bold">{{ conv.title|truncatewords:5 }}</div>
-                <small class="text-muted">{{ conv.updated_at|timesince }}前</small>
+                <div class="conversation-content">
+                    <div class="fw-bold">{{ conv.title|truncatewords:5 }}</div>
+                    <small class="text-muted">{{ conv.updated_at|timesince }}前</small>
+                </div>
+                <button class="delete-conversation-btn"
+                        onclick="deleteConversation({{ conv.id }}, event)"
+                        title="删除对话">
+                    <i class="bi bi-trash"></i>
+                </button>
             </div>
             {% endfor %}
         </div>
@@ -347,7 +390,7 @@
 </div>
 
 <script>
-    const conversationId = {{ conversation.id }};
+    let currentConversationId = {{ conversation.id }};
     const csrftoken = '{{ csrf_token }}';
 
     function handleKeyDown(event) {
@@ -385,15 +428,22 @@
                 },
                 body: JSON.stringify({
                     message: message,
-                    conversation_id: conversationId
+                    conversation_id: currentConversationId
                 })
             });
 
             const data = await response.json();
 
             if (data.success) {
+                // Update conversation ID if it changed (for first message in new conversation)
+                if (data.conversation_id) {
+                    currentConversationId = data.conversation_id;
+                }
                 // Add assistant response to UI
                 addMessageToUI('assistant', data.assistant_message.content, data.assistant_message.suggested_resources);
+
+                // Refresh conversation list to update timestamps
+                await refreshConversationList();
             } else {
                 addMessageToUI('assistant', '抱歉，发生了错误: ' + data.error);
             }
@@ -457,12 +507,140 @@
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 
-    function newConversation() {
-        window.location.href = '/chat/';
+    async function newConversation() {
+        try {
+            const response = await fetch('/chat/api/conversation/new/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrftoken
+                }
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                // Update current conversation ID
+                currentConversationId = data.conversation_id;
+
+                // Clear messages
+                const messagesContainer = document.getElementById('chatMessages');
+                messagesContainer.innerHTML = `
+                    <div class="empty-state">
+                        <i class="bi bi-chat-dots"></i>
+                        <h4>欢迎来到AI学习助手！</h4>
+                        <p>我可以帮助你：</p>
+                        <ul class="text-start" style="max-width: 400px;">
+                            <li>根据你的学习需求推荐合适的课程</li>
+                            <li>解答Python编程相关的问题</li>
+                            <li>提供学习路线和建议</li>
+                            <li>帮助你找到Classlib中的学习资源</li>
+                        </ul>
+                        <p class="mt-3"><strong>试着问我：</strong>"我想学习Python数据结构" 或 "什么是列表和元组的区别？"</p>
+                    </div>
+                `;
+
+                // Refresh conversation list
+                await refreshConversationList();
+
+                // Focus input
+                document.getElementById('messageInput').focus();
+            }
+        } catch (error) {
+            console.error('Error creating new conversation:', error);
+            alert('创建新对话失败，请重试。');
+        }
     }
 
-    function loadConversation(conversationId) {
-        window.location.href = `/chat/?conversation=${conversationId}`;
+    async function loadConversation(conversationId) {
+        try {
+            const response = await fetch(`/chat/api/conversation/${conversationId}/`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                // Update current conversation ID
+                currentConversationId = conversationId;
+
+                // Clear messages
+                const messagesContainer = document.getElementById('chatMessages');
+                messagesContainer.innerHTML = '';
+
+                // Add messages
+                if (data.messages.length === 0) {
+                    messagesContainer.innerHTML = `
+                        <div class="empty-state">
+                            <i class="bi bi-chat-dots"></i>
+                            <h4>开始对话</h4>
+                            <p>输入你的问题开始对话...</p>
+                        </div>
+                    `;
+                } else {
+                    data.messages.forEach(msg => {
+                        addMessageToUI(msg.role, msg.content, msg.metadata?.suggested_resources || []);
+                    });
+                }
+
+                // Update active conversation in sidebar
+                document.querySelectorAll('.conversation-item').forEach(item => {
+                    item.classList.remove('active');
+                });
+                const activeItem = document.querySelector(`[data-conversation-id="${conversationId}"]`);
+                if (activeItem) {
+                    activeItem.classList.add('active');
+                }
+
+                // Focus input
+                document.getElementById('messageInput').focus();
+            }
+        } catch (error) {
+            console.error('Error loading conversation:', error);
+            alert('加载对话失败，请重试。');
+        }
+    }
+
+    async function deleteConversation(conversationId, event) {
+        event.stopPropagation(); // Prevent triggering loadConversation
+
+        if (!confirm('确定要删除这个对话吗？')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/chat/api/conversation/${conversationId}/delete/`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrftoken
+                }
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                // If deleting current conversation, create a new one
+                if (conversationId === currentConversationId) {
+                    await newConversation();
+                } else {
+                    // Just refresh the list
+                    await refreshConversationList();
+                }
+            }
+        } catch (error) {
+            console.error('Error deleting conversation:', error);
+            alert('删除对话失败，请重试。');
+        }
+    }
+
+    async function refreshConversationList() {
+        // For simplicity, reload the page to refresh the conversation list
+        // In a more advanced implementation, you could fetch the list via AJAX
+        window.location.reload();
     }
 
     // Auto-resize textarea

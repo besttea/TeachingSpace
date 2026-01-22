@@ -178,8 +178,11 @@ MARKDOWNX_MARKDOWN_EXTENSIONS = [
     'markdown.extensions.fenced_code',
 ]
 
-# AI Configuration
+# AI/LLM Configuration
 ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
 ANTHROPIC_MODEL = config('ANTHROPIC_MODEL', default='claude-3-5-sonnet-20241022')
+ANTHROPIC_API_BASE_URL = config('ANTHROPIC_BASE_URL', default='')
 AI_MAX_TOKENS = config('AI_MAX_TOKENS', default=4096, cast=int)
 AI_TEMPERATURE = config('AI_TEMPERATURE', default=0.7, cast=float)
+AI_CACHE_ENABLED = config('AI_CACHE_ENABLED', default=True, cast=bool)
+AI_COST_LIMIT_DAILY = config('AI_COST_LIMIT_DAILY', default=50.00, cast=float)

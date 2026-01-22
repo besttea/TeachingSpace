@@ -64,14 +64,15 @@ class ExerciseDetailView(LoginRequiredMixin, DetailView):
         context = super().get_context_data(**kwargs)
 
         # Get student's previous submissions
-        submissions = Submission.objects.filter(
+        all_submissions = Submission.objects.filter(
             exercise=self.object,
             student=self.request.user
-        ).order_by('-submitted_at')[:5]
-        context['submissions'] = submissions
+        ).order_by('-submitted_at')
+        
+        context['submissions'] = all_submissions[:5]
 
-        # Get best submission
-        best_submission = submissions.filter(status='passed').first()
+        # Get best submission (most recent passed)
+        best_submission = all_submissions.filter(status='passed').first()
         context['best_submission'] = best_submission
 
         # Get hints (don't reveal content yet)

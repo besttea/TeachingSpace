@@ -61,40 +61,10 @@ class CodeExecutor:
                 'error': f'Invalid execution mode: {mode}'
             }
 
-    def _execute_restricted(self, code, stdin_input=''):
-        """
-        Execute code using RestrictedPython with basic sandboxing.
-
-        This mode is fast but limited - suitable for learning lessons.
-        Restricted features:
-        - No file I/O
-        - No network access
-        - No subprocess execution
-        - Limited imports
-        """
-        output_buffer = io.StringIO()
-        error_buffer = io.StringIO()
-        
-        # Prepare stdin mock
-        input_lines = stdin_input.splitlines()
-        input_iterator = iter(input_lines)
-
-        def mock_input(prompt=''):
-            if prompt:
-                print(prompt, end='', file=output_buffer)
-            try:
-                return next(input_iterator)
-            except StopIteration:
-                raise EOFError("EOF when reading a line")
-
-        start_time = time.time()
-        status = 'success'
-        error_message = None
-
-        # Restricted globals - only safe built-ins
-        safe_builtins = {
+    def _get_safe_builtins(self, mock_input=None):
+        """Return a dictionary of safe built-ins."""
+        builtins = {
             'print': print,
-            'input': mock_input,
             'len': len,
             'range': range,
             'str': str,
@@ -125,7 +95,14 @@ class CodeExecutor:
             }
         }
 
-        # Check for prohibited operations
+        # Add mock_input if provided
+        if mock_input:
+            builtins['input'] = mock_input
+
+        return builtins
+
+    def _check_prohibited_keywords(self, code):
+        """Check code for prohibited keywords."""
         prohibited_keywords = [
             'import os',
             'import sys',
@@ -141,18 +118,56 @@ class CodeExecutor:
         code_lower = code.lower()
         for keyword in prohibited_keywords:
             if keyword in code_lower:
-                return {
-                    'output': '',
-                    'status': 'error',
-                    'execution_time': 0,
-                    'error': f'Prohibited operation detected: {keyword}'
-                }
+                return f'Prohibited operation detected: {keyword}'
+        return None
+
+    def _execute_restricted(self, code, stdin_input=''):
+        """
+        Execute code using RestrictedPython with basic sandboxing.
+
+        This mode is fast but limited - suitable for learning lessons.
+        Restricted features:
+        - No file I/O
+        - No network access
+        - No subprocess execution
+        - Limited imports
+        """
+        output_buffer = io.StringIO()
+        error_buffer = io.StringIO()
+
+        # Prepare stdin mock if input is provided
+        mock_input = None
+        if stdin_input:
+            input_lines = stdin_input.splitlines()
+            input_iterator = iter(input_lines)
+
+            def mock_input(prompt=''):
+                if prompt:
+                    print(prompt, end='', file=output_buffer)
+                try:
+                    return next(input_iterator)
+                except StopIteration:
+                    raise EOFError("EOF when reading a line")
+
+        start_time = time.time()
+        status = 'success'
+        error_message = None
+
+        # Check for prohibited operations
+        error_msg = self._check_prohibited_keywords(code)
+        if error_msg:
+            return {
+                'output': '',
+                'status': 'error',
+                'execution_time': 0,
+                'error': error_msg
+            }
 
         try:
             # Redirect stdout and stderr
             with redirect_stdout(output_buffer), redirect_stderr(error_buffer):
                 # Create a restricted namespace
-                namespace = {'__builtins__': safe_builtins}
+                namespace = {'__builtins__': self._get_safe_builtins(mock_input)}
 
                 # Execute the code
                 exec(code, namespace)
@@ -208,9 +223,13 @@ class CodeExecutor:
         """
         Execute code and run test cases against it.
 
+        Supports two test formats:
+        1. stdin/stdout based: {'input': '...', 'expected_output': '...'}
+        2. Function-based: {'input': 'func(args)', 'expected': result}
+
         Args:
             code: Python code to execute
-            test_cases: List of test case dictionaries with 'input' and 'expected_output'
+            test_cases: List of test case dictionaries or dict with 'tests' key
             timeout: Maximum execution time in seconds
 
         Returns:
@@ -221,95 +240,183 @@ class CodeExecutor:
                 'failed_tests': int,
                 'test_results': list,  # Individual test results
                 'execution_time': float,
-                'error': str
+                'error': str,
+                'output': str,
+                'message': str
             }
         """
-        if not test_cases:
-            return {
-                'status': 'error',
-                'total_tests': 0,
-                'passed_tests': 0,
-                'failed_tests': 0,
-                'test_results': [],
-                'execution_time': 0,
-                'error': 'No test cases provided'
-            }
-
-        results = []
-        passed_count = 0
-        total_tests = len(test_cases)
+        output_buffer = io.StringIO()
+        error_buffer = io.StringIO()
         start_time = time.time()
-        overall_status = 'success'
-        error_message = None
 
-        for i, test in enumerate(test_cases):
-            input_data = test.get('input', '')
-            expected_output = test.get('expected_output', '').strip()
-            
-            # Execute code with input
-            # Temporarily adjust timeout if needed
-            original_timeout = self.timeout
-            self.timeout = timeout
-            
+        # Initialize results
+        results = {
+            'status': 'error',
+            'total_tests': 0,
+            'passed_tests': 0,
+            'failed_tests': 0,
+            'test_results': [],
+            'execution_time': 0,
+            'error': None,
+            'output': '',
+            'message': ''
+        }
+
+        # Handle test_cases format (list or dict with 'tests' key)
+        tests = []
+        if isinstance(test_cases, dict):
+            tests = test_cases.get('tests', [])
+        elif isinstance(test_cases, list):
+            tests = test_cases
+
+        if not tests:
+            results['error'] = 'No test cases provided'
+            return results
+
+        results['total_tests'] = len(tests)
+
+        # Check for prohibited operations
+        error_msg = self._check_prohibited_keywords(code)
+        if error_msg:
+            results['error'] = error_msg
+            return results
+
+        # Determine test type by checking first test case
+        first_test = tests[0]
+        is_function_test = 'expected_output' not in first_test and 'expected' in first_test
+
+        if is_function_test:
+            # Function-based testing: Execute code once, then eval tests
             try:
-                exec_result = self.execute_code(code, mode='restricted', stdin_input=input_data)
-                
-                actual_output = exec_result['output'].strip()
-                
-                # Check for execution errors first
-                if exec_result['status'] == 'error':
-                    passed = False
-                    overall_status = 'error'
-                    error_message = exec_result.get('error')
+                # Redirect stdout and stderr
+                with redirect_stdout(output_buffer), redirect_stderr(error_buffer):
+                    # Create a restricted namespace
+                    namespace = {'__builtins__': self._get_safe_builtins()}
+
+                    # Execute the user code first (to define functions)
+                    exec(code, namespace)
+
+                    # Run tests
+                    for test in tests:
+                        test_input = test.get('input')
+                        expected = test.get('expected')
+
+                        test_result = {
+                            'input': test_input,
+                            'expected': expected,
+                            'actual': None,
+                            'passed': False,
+                            'error': None,
+                            'description': test.get('description', ''),
+                            'is_hidden': test.get('is_hidden', False)
+                        }
+
+                        try:
+                            # Evaluate the test input expression in the same namespace
+                            actual = eval(test_input, namespace)
+                            test_result['actual'] = actual
+
+                            # Compare results
+                            if actual == expected:
+                                test_result['passed'] = True
+                                results['passed_tests'] += 1
+                            else:
+                                test_result['passed'] = False
+                                results['failed_tests'] += 1
+
+                        except Exception as e:
+                            test_result['passed'] = False
+                            test_result['error'] = str(e)
+                            results['failed_tests'] += 1
+
+                        results['test_results'].append(test_result)
+
+                # Determine final status
+                if results['failed_tests'] == 0 and results['passed_tests'] == results['total_tests']:
+                    results['status'] = 'passed'
+                elif results['failed_tests'] > 0:
+                    results['status'] = 'failed'
                 else:
-                    # Compare output
-                    passed = (actual_output == expected_output)
-                
-                if passed:
-                    passed_count += 1
-                    
-                results.append({
-                    'case_index': i,
-                    'input': input_data,
-                    'expected': expected_output,
-                    'actual': actual_output,
-                    'passed': passed,
-                    'error': exec_result.get('error'),
-                    'is_hidden': test.get('is_hidden', False)
-                })
+                    results['status'] = 'error'
+
+                output = output_buffer.getvalue()
+                errors = error_buffer.getvalue()
+
+                if errors:
+                    output += '\n' + errors
+
+                results['output'] = output
 
             except Exception as e:
-                passed = False
-                overall_status = 'error'
-                error_message = str(e)
-                results.append({
-                    'case_index': i,
-                    'input': input_data,
-                    'expected': expected_output,
-                    'actual': '',
-                    'passed': False,
-                    'error': str(e),
-                    'is_hidden': test.get('is_hidden', False)
-                })
-            finally:
-                self.timeout = original_timeout
+                results['status'] = 'error'
+                results['error'] = f'{type(e).__name__}: {str(e)}\n\n{traceback.format_exc()}'
+        else:
+            # stdin/stdout based testing: Execute code for each test
+            original_timeout = self.timeout
+            self.timeout = timeout
+
+            for i, test in enumerate(tests):
+                input_data = test.get('input', '')
+                expected_output = test.get('expected_output', '').strip()
+
+                try:
+                    exec_result = self.execute_code(code, mode='restricted', stdin_input=input_data)
+
+                    actual_output = exec_result['output'].strip()
+
+                    # Check for execution errors first
+                    if exec_result['status'] == 'error':
+                        passed = False
+                        error = exec_result.get('error')
+                    else:
+                        # Compare output
+                        passed = (actual_output == expected_output)
+                        error = None
+
+                    if passed:
+                        results['passed_tests'] += 1
+                    else:
+                        results['failed_tests'] += 1
+
+                    results['test_results'].append({
+                        'case_index': i,
+                        'input': input_data,
+                        'expected': expected_output,
+                        'actual': actual_output,
+                        'passed': passed,
+                        'error': error,
+                        'is_hidden': test.get('is_hidden', False),
+                        'description': test.get('description', '')
+                    })
+
+                except Exception as e:
+                    results['failed_tests'] += 1
+                    results['test_results'].append({
+                        'case_index': i,
+                        'input': input_data,
+                        'expected': expected_output,
+                        'actual': '',
+                        'passed': False,
+                        'error': str(e),
+                        'is_hidden': test.get('is_hidden', False),
+                        'description': test.get('description', '')
+                    })
+
+            self.timeout = original_timeout
+
+            # Determine final status
+            if results['passed_tests'] == results['total_tests']:
+                results['status'] = 'passed'
+            elif results['passed_tests'] > 0:
+                results['status'] = 'failed'
+            else:
+                results['status'] = 'error'
 
         end_time = time.time()
-        
-        final_status = 'passed' if passed_count == total_tests else 'failed'
-        if overall_status == 'error' and passed_count == 0:
-            final_status = 'error'
+        results['execution_time'] = (end_time - start_time) * 1000
+        results['message'] = f'Passed {results["passed_tests"]}/{results["total_tests"]} tests'
 
-        return {
-            'status': final_status,
-            'total_tests': total_tests,
-            'passed_tests': passed_count,
-            'failed_tests': total_tests - passed_count,
-            'test_results': results,
-            'execution_time': (end_time - start_time) * 1000,
-            'error': error_message,
-            'message': f'Passed {passed_count}/{total_tests} tests'
-        }
+        return results
 
 
 # Convenience function for simple execution
