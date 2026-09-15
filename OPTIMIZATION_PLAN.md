@@ -328,6 +328,20 @@ Celery（无 celery.py 应用、无 tasks.py、无 `.delay()`）、DRF（零 ser
 
 ## 进度记录
 
+- **2026-09-16**：完成第 1 阶段（安全止血）+ 第 2 阶段（核心功能修复）主体
+  - ✅ **P0-1/2 已修复**：执行器整体重写为 subprocess 隔离（`python -I` 子进程）+ 强制超时（kill）+ 严格 builtins 白名单（无 `__import__`/`open`/`eval`/`type`/`getattr`，白名单导入 math/random 等）+ AST 禁止下划线属性访问（封堵 `().__class__.__mro__` 类 gadget 链）；预留 RestrictedPython 可选加固层（装上即自动生效）。已验证：import os 被拒、gadget 链被拒、open 被拒、死循环 3 秒被杀、双测试模式正常。**遗留限制**：子进程仍是同一 OS 用户（Docker 为终态）
+  - ✅ **P0-3 已修复**：`cells_json|safe` → `json_script`；新增 `escapejs_tick` 过滤器（转义反引号与 `${`）；marked 输出过 DOMPurify（cdnjs 3.1.6）；无 marked 时回退为纯文本转义（不再返回原始 markdown）；聊天界面 `innerHTML` 前统一 `escapeHtml()`（用户消息、AI 回复、推荐资源字段）
+  - ✅ **P0-4 已修复**：注册强制 `user_type='student'`（前端移除 Instructor 选项 + 后端白名单）；接入 `validate_password()`（4 个配置好的 validator 生效）
+  - ✅ **P0-5 已修复**：登录 `next` 参数经 `url_has_allowed_host_and_scheme` 校验；logout 改为 POST-only（base.html 改为表单按钮）
+  - ✅ **P0-12 已修复**：`LessonDetailView` 过滤草稿（instructor/staff 可见）、`LessonEditView` 增加 `UserPassesTestMixin`、`execute_cell` 要求已选课（或 instructor/staff）、`ExamDetailView`/`TakeExamView` 过滤未发布考试、`CourseDetailView` 过滤未发布课程
+  - ✅ **P0-8/9/10 已修复**：训练判分读取正确键（`test_results`/`passed_tests`/`total_tests`）+ `tests_total > 0` 守卫（不再 0==0 恒通过）；考试代码题读取 `passed_tests`（不再恒 0 分）；`truefalseavequestion` 拼写修复为显式 accessor 映射
+  - ✅ **P0-11 已修复**：单元格插入/删除/重排全部改为「逐行更新」或「两阶段（先 +1,000,000 再归位）」，交换相邻单元格不再撞唯一约束；重排接口校验提交列表是完整排列；`create_cell` 校验 `cell_type` 合法
+  - ✅ **P1-1 已修复**：`StudentExam.remaining_seconds()`/`is_timed_out()` 服务端计时（基于 start_time）；`save_answer` 超时拒绝；`take` 页时间来自服务端计算
+  - ✅ **P1-2 已修复**：`submit_exam` 整体 `transaction.atomic()` + `select_for_update()`——双击不会重复判分、判分异常回滚不会把学生锁死；`student_profile` 缺失不再 500；`start_exam` 加行锁防 attempt_number 竞态
+  - ✅ **P1-3 已修复**：`execute_cell` 不再把学生执行结果写入共享单元格（执行结果只回传前端）
+  - ✅ **P1-5 已修复**：考试抽题改用局部 `random.Random(seed)`，不再污染进程全局随机状态
+  - ✅ **P2-4 部分修复**：学习 app 全部 API 错误经 `_error_response` 统一脱敏（DEBUG 下才显示详情）+ 服务端日志记录
+  - ✅ **回归测试**：新增 28 个测试（执行器 12、账户 4、学习 6、训练 3、聊天 3），加上聊天已有 11 个共 **39 个测试全部通过**；模板冒烟验证（json_script / DOMPurify / logout 表单渲染正常、403 权限生效）
 - **2026-09-16**：完成项目内 AI 工具调用能力（P3-0）
   - ✅ 新增 `apps/chat/notebook_tools.py`：3 个 Anthropic tool-use 工具（列出资料/结构摘要/读取节内容），白名单校验文件名、结果截断、剔除噪音单元格
   - ✅ 聊天助手 `ChatAIService` 改为工具循环调用（最多 3 轮），系统提示词不再发送服务器绝对路径（**P0-7 部分修复**）

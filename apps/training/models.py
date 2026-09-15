@@ -132,14 +132,14 @@ class Submission(models.Model):
             )
 
             # Update submission with results
-            self.test_results = result.get('results', [])
+            self.test_results = result.get('test_results', [])
             self.output = result.get('output', '')
-            self.tests_passed = result.get('tests_passed', 0)
-            self.tests_total = result.get('tests_total', 0)
+            self.tests_passed = result.get('passed_tests', 0)
+            self.tests_total = result.get('total_tests', 0)
             self.execution_time_ms = result.get('execution_time', 0)
 
-            # Determine status
-            if self.tests_passed == self.tests_total:
+            # Determine status (guard against empty test suites: 0/0 is not a pass)
+            if self.tests_total > 0 and self.tests_passed == self.tests_total:
                 self.status = 'passed'
                 # Calculate points (base points minus hint penalties)
                 self.points_awarded = max(0, self.exercise.points - (self.hints_used * 2))

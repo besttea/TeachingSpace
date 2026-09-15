@@ -1,17 +1,34 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.views.generic import ListView, DetailView, UpdateView
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
+from django.conf import settings
 import json
+import logging
 from django.core.serializers.json import DjangoJSONEncoder
 
 from .models import Course, Chapter, Lesson, Cell, CellVersion, Enrollment, LessonProgress
 from .cell_handlers import get_handler
+
+logger = logging.getLogger(__name__)
+
+
+def _can_edit_lesson(user, lesson):
+    """Instructor of the owning course, or staff."""
+    return user == lesson.chapter.course.instructor or user.is_staff
+
+
+def _error_response(e):
+    """Uniform API error handling: no internal details to clients (except DEBUG)."""
+    logger.exception('Learning API error')
+    if getattr(settings, 'DEBUG', False):
+        return _error_response(e)
+    return JsonResponse({'error': '操作失败，请重试'}, status=400)
 
 
 class CourseListView(ListView):
@@ -42,6 +59,16 @@ class CourseDetailView(DetailView):
     model = Course
     template_name = 'learning/course_detail.html'
     context_object_name = 'course'
+
+    def get_queryset(self):
+        """Unpublished courses are only visible to their instructor/staff."""
+        qs = Course.objects.all()
+        user = self.request.user
+        if not (user.is_authenticated and user.is_staff):
+            qs = qs.filter(is_published=True)
+            if user.is_authenticated:
+                qs = qs | Course.objects.filter(instructor=user)
+        return qs
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -94,6 +121,16 @@ class LessonDetailView(LoginRequiredMixin, DetailView):
     template_name = 'learning/lesson_detail.html'
     context_object_name = 'lesson'
 
+    def get_queryset(self):
+        """Draft/archived lessons are only visible to the instructor/staff."""
+        qs = Lesson.objects.all()
+        user = self.request.user
+        if not user.is_staff:
+            qs = qs.filter(
+                Q(status='published') | Q(chapter__course__instructor=user)
+            )
+        return qs
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
@@ -126,11 +163,15 @@ class LessonDetailView(LoginRequiredMixin, DetailView):
         return context
 
 
-class LessonEditView(LoginRequiredMixin, DetailView):
+class LessonEditView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
     """Editable notebook interface for instructors"""
     model = Lesson
     template_name = 'learning/lesson_edit.html'
     context_object_name = 'lesson'
+
+    def test_func(self):
+        lesson = self.get_object()
+        return _can_edit_lesson(self.request.user, lesson)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -165,12 +206,21 @@ def create_cell(request):
         lesson = get_object_or_404(Lesson, pk=lesson_id)
 
         # Check permission (instructor or admin)
-        if request.user != lesson.chapter.course.instructor and not request.user.is_staff:
+        if not _can_edit_lesson(request.user, lesson):
             return JsonResponse({'error': 'Permission denied'}, status=403)
 
-        # Shift existing cells down if inserting in the middle
-        if order is not None:
-            Cell.objects.filter(lesson=lesson, order__gte=order).update(order=F('order') + 1)
+        # Validate cell type against the model's choices
+        if cell_type not in dict(Cell.CELL_TYPES):
+            return JsonResponse({'error': f'Invalid cell type: {cell_type}'}, status=400)
+
+        # Shift existing cells down if inserting in the middle. Update rows
+        # one by one, highest first, so the (lesson, order) unique constraint
+        # never collides mid-operation.
+        with transaction.atomic():
+            for cell_id in Cell.objects.filter(
+                lesson=lesson, order__gte=order
+            ).order_by('-order').values_list('id', flat=True):
+                Cell.objects.filter(id=cell_id).update(order=F('order') + 1)
 
         # Create default cell data based on type
         default_data = {
@@ -207,7 +257,7 @@ def create_cell(request):
         })
 
     except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
+        return _error_response(e)
 
 
 @login_required
@@ -218,7 +268,7 @@ def update_cell(request, pk):
         cell = get_object_or_404(Cell, pk=pk)
 
         # Check permission
-        if request.user != cell.lesson.chapter.course.instructor and not request.user.is_staff:
+        if not _can_edit_lesson(request.user, cell.lesson):
             return JsonResponse({'error': 'Permission denied'}, status=403)
 
         data = json.loads(request.body)
@@ -259,7 +309,7 @@ def update_cell(request, pk):
         })
 
     except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
+        return _error_response(e)
 
 
 @login_required
@@ -270,61 +320,80 @@ def delete_cell(request, pk):
         cell = get_object_or_404(Cell, pk=pk)
 
         # Check permission
-        if request.user != cell.lesson.chapter.course.instructor and not request.user.is_staff:
+        if not _can_edit_lesson(request.user, cell.lesson):
             return JsonResponse({'error': 'Permission denied'}, status=403)
 
         lesson = cell.lesson
         order = cell.order
 
-        # Delete the cell
-        cell.delete()
-
-        # Reorder remaining cells
-        Cell.objects.filter(lesson=lesson, order__gt=order).update(order=F('order') - 1)
+        # Delete the cell, then renumber the rest one by one (lowest first)
+        # so the (lesson, order) unique constraint never collides.
+        with transaction.atomic():
+            cell.delete()
+            for cell_id in Cell.objects.filter(
+                lesson=lesson, order__gt=order
+            ).order_by('order').values_list('id', flat=True):
+                Cell.objects.filter(id=cell_id).update(order=F('order') - 1)
 
         return JsonResponse({'success': True})
 
     except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
+        return _error_response(e)
 
 
 @login_required
 @require_http_methods(["POST"])
 def execute_cell(request, pk):
-    """Execute a code cell"""
+    """Execute a code cell (students must be enrolled in the course)"""
     try:
         cell = get_object_or_404(Cell, pk=pk)
 
         if cell.cell_type != 'code':
             return JsonResponse({'error': 'Only code cells can be executed'}, status=400)
 
-        # Execute the cell
-        result = cell.execute()
+        lesson = cell.lesson
+
+        # Only the course instructor/staff or enrolled students may run code
+        is_instructor = _can_edit_lesson(request.user, lesson)
+        enrolled = Enrollment.objects.filter(
+            student=request.user,
+            course=lesson.chapter.course,
+            is_active=True
+        ).exists()
+        if not (is_instructor or enrolled):
+            return JsonResponse({
+                'error': 'You must be enrolled in this course to execute code cells'
+            }, status=403)
+
+        # Execute WITHOUT persisting the student's output into the shared
+        # lesson cell (students must not overwrite each other's results).
+        from apps.code_runner.executor import CodeExecutor
+        code = cell.data.get('source', '')
+        result = CodeExecutor().execute_code(code)
 
         # Track execution in progress
-        enrollment = Enrollment.objects.filter(
-            student=request.user,
-            course=cell.lesson.chapter.course,
-            is_active=True
-        ).first()
-
-        if enrollment:
+        if enrolled:
+            enrollment = Enrollment.objects.get(
+                student=request.user,
+                course=lesson.chapter.course,
+                is_active=True
+            )
             progress, _ = LessonProgress.objects.get_or_create(
                 enrollment=enrollment,
-                lesson=cell.lesson
+                lesson=lesson
             )
             progress.track_cell_execution(cell.id)
 
         return JsonResponse({
             'success': True,
-            'output': cell.data.get('output', ''),
-            'status': cell.data.get('status', 'error'),
-            'execution_time_ms': cell.data.get('execution_time_ms', 0),
+            'output': result.get('output', ''),
+            'status': result.get('status', 'error'),
+            'execution_time_ms': result.get('execution_time', 0),
             'execution_count': cell.data.get('execution_count', 0)
         })
 
     except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
+        return _error_response(e)
 
 
 @login_required
@@ -339,18 +408,35 @@ def reorder_cells(request):
         lesson = get_object_or_404(Lesson, pk=lesson_id)
 
         # Check permission
-        if request.user != lesson.chapter.course.instructor and not request.user.is_staff:
+        if not _can_edit_lesson(request.user, lesson):
             return JsonResponse({'error': 'Permission denied'}, status=403)
 
-        # Update cell orders
+        # Update cell orders (two-phase: jump to a safe range first so
+        # swaps like A:0→1, B:1→0 never collide on the unique constraint)
         with transaction.atomic():
+            existing_ids = set(
+                lesson.cells.values_list('id', flat=True)
+            )
+            submitted = {int(item.get('id')) for item in cell_orders}
+            submitted_orders = [int(item.get('order')) for item in cell_orders]
+
+            if submitted != existing_ids:
+                raise ValueError('提交的顺序列表与本课程单元的单元格不一致')
+            if sorted(submitted_orders) != list(range(len(cell_orders))):
+                raise ValueError('顺序必须是 0..n-1 的完整排列')
+
+            Cell.objects.filter(lesson=lesson, id__in=submitted).update(
+                order=F('order') + 1_000_000
+            )
             for item in cell_orders:
-                Cell.objects.filter(id=item['id'], lesson=lesson).update(order=item['order'])
+                Cell.objects.filter(
+                    id=int(item['id']), lesson=lesson
+                ).update(order=int(item['order']))
 
         return JsonResponse({'success': True})
 
     except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
+        return _error_response(e)
 
 
 @login_required
@@ -380,4 +466,4 @@ def mark_lesson_complete(request, pk):
         })
 
     except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
+        return _error_response(e)

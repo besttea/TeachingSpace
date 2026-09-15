@@ -1,30 +1,269 @@
 """
-Code execution engine for running Python code securely.
+Code execution engine for running student Python code.
 
-This module provides two execution modes:
-1. RestrictedPython: Fast, limited execution for simple code (learning lessons)
-2. Docker: Full isolation for exercises and exams (to be implemented)
+Security model: student code NEVER runs inside the Django process. Every
+execution happens in a fresh ``python -I`` subprocess with:
+
+- a hard wall-clock timeout enforced by the parent (kills the subprocess),
+- a strict builtins whitelist (no ``__import__`` except a small allowlist,
+  no ``open``/``eval``/``exec``/``compile``, no introspection helpers like
+  ``type``/``getattr``/``dir``),
+- output captured and truncated,
+- (if installed) RestrictedPython bytecode compilation as an additional
+  layer against ``__class__``-style gadget chains.
+
+Limitations (documented, not hidden): the subprocess is isolated from the
+server process but not from the OS — it runs as the same OS user with
+network access. Full OS-level isolation requires the Docker mode
+(``mode='docker'``), which is still a stub.
 """
 
-import sys
 import io
+import json
+import os
+import subprocess
+import sys
 import time
+
+#: Hard cap on submitted code length (sanity guard for the JSON pipe).
+MAX_CODE_LENGTH = 100_000
+#: Sentinel marking the result JSON on the sandbox subprocess stdout.
+_SENTINEL = '__SANDBOX_RESULT__'
+
+#: Modules students may import inside the sandbox.
+_ALLOWED_IMPORTS = frozenset({
+    'math', 'random', 'json', 're', 'collections', 'itertools',
+    'functools', 'heapq', 'statistics', 'string', 'datetime', 'decimal',
+    'fractions', 'copy', 'bisect', 'enum', 'typing', 'calendar',
+})
+
+#: Runner script executed inside the subprocess (stdlib only).
+_SANDBOX_RUNNER = r'''
+import ast
+import io
+import json
+import sys
 import traceback
 from contextlib import redirect_stdout, redirect_stderr
+
+SENTINEL = '__SANDBOX_RESULT__'
+ALLOWED_IMPORTS = {
+    'math', 'random', 'json', 're', 'collections', 'itertools',
+    'functools', 'heapq', 'statistics', 'string', 'datetime', 'decimal',
+    'fractions', 'copy', 'bisect', 'enum', 'typing', 'calendar',
+}
+
+_orig_import = __import__
+
+def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+    root = name.split('.')[0]
+    if root not in ALLOWED_IMPORTS:
+        raise ImportError("import of %r is not allowed in this sandbox" % name)
+    return _orig_import(name, globals, locals, fromlist, level)
+
+SAFE_BUILTINS = {
+    'print': print, 'input': input,
+    'len': len, 'range': range, 'iter': iter, 'next': next, 'reversed': reversed,
+    'enumerate': enumerate, 'zip': zip, 'map': map, 'filter': filter,
+    'str': str, 'int': int, 'float': float, 'bool': bool, 'complex': complex,
+    'list': list, 'dict': dict, 'tuple': tuple, 'set': set, 'frozenset': frozenset,
+    'abs': abs, 'min': min, 'max': max, 'sum': sum, 'round': round, 'pow': pow,
+    'divmod': divmod, 'sorted': sorted, 'all': all, 'any': any,
+    'chr': chr, 'ord': ord, 'repr': repr, 'format': format,
+    'isinstance': isinstance, 'issubclass': issubclass,
+    '__build_class__': __build_class__,
+    'Exception': Exception, 'ValueError': ValueError, 'TypeError': TypeError,
+    'KeyError': KeyError, 'IndexError': IndexError, 'StopIteration': StopIteration,
+    '__import__': _safe_import,
+    '__name__': '__main__',
+}
+
+# Optional RestrictedPython hardening (used when the package is installed).
+try:
+    from RestrictedPython import compile_restricted
+    from RestrictedPython.Guards import guarded_getattr, guarded_getitem, guarded_getiter
+    HAVE_RESTRICTED = True
+except ImportError:
+    HAVE_RESTRICTED = False
+
+
+def _check_no_private_attrs(tree):
+    """Reject attribute access to names starting with '_'.
+
+    Blocks the classic ``().__class__.__mro__[1].__subclasses__()`` gadget
+    chains without RestrictedPython. Student code rarely needs private
+    attributes; the error message explains the rule.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr.startswith('_'):
+            raise SyntaxError(
+                "access to private attribute %r is not allowed in this sandbox" % node.attr)
+
+
+def _compile(source):
+    if HAVE_RESTRICTED:
+        try:
+            code, errors, _warnings, _used = compile_restricted(
+                source, filename='<student-code>',
+                policy={'allowed_imports': sorted(ALLOWED_IMPORTS)},
+            )
+        except TypeError:  # older RestrictedPython signatures
+            code, errors, _warnings, _used = compile_restricted(
+                source, filename='<student-code>')
+        if errors:
+            raise SyntaxError('; '.join(errors))
+        return code
+    tree = ast.parse(source, '<student-code>')
+    _check_no_private_attrs(tree)
+    return compile(tree, '<student-code>', 'exec')
+
+def _execute_source(source, stdin_lines=None):
+    """Execute source with captured stdout/stderr. Returns (ns, out, err)."""
+    out, err = io.StringIO(), io.StringIO()
+    ns = {'__builtins__': dict(SAFE_BUILTINS)}
+    if HAVE_RESTRICTED:
+        ns['_getattr_'] = guarded_getattr
+        ns['_getitem_'] = guarded_getitem
+        ns['_getiter_'] = guarded_getiter
+        ns['_write_'] = lambda x: x
+    if stdin_lines is not None:
+        iterator = iter(stdin_lines)
+        def mock_input(prompt=''):
+            if prompt:
+                out.write(str(prompt))
+            try:
+                return next(iterator)
+            except StopIteration:
+                raise EOFError('EOF when reading a line')
+        ns['__builtins__']['input'] = mock_input
+
+    code_obj = _compile(source)
+    with redirect_stdout(out), redirect_stderr(err):
+        exec(code_obj, ns)
+    return ns, out.getvalue(), err.getvalue()
+
+def _error_text(exc):
+    """Exception message + last traceback line, without server file paths."""
+    tb = traceback.format_exc().strip().splitlines()
+    relevant = [tb[-1]] if tb else []
+    return '%s: %s\n%s' % (type(exc).__name__, exc, '\n'.join(relevant))
+
+def _run_simple(req):
+    result = {'output': '', 'status': 'success', 'error': None}
+    stdin_input = req.get('stdin_input', '')
+    try:
+        lines = stdin_input.splitlines() if stdin_input else None
+        _ns, out, err = _execute_source(req['code'], stdin_lines=lines)
+        result['output'] = out + ('\n' + err if err else '')
+        if err:
+            result['status'] = 'error'
+            result['error'] = err.strip()
+    except Exception as e:
+        result['status'] = 'error'
+        result['error'] = _error_text(e)
+    return result
+
+def _run_tests(req):
+    tests = req['test_cases'] or []
+    code = req['code']
+    result = {
+        'status': 'error', 'total_tests': len(tests),
+        'passed_tests': 0, 'failed_tests': 0, 'test_results': [],
+        'error': None, 'output': '', 'message': '',
+    }
+    if not tests:
+        result['error'] = 'No test cases provided'
+        return result
+
+    first = tests[0]
+    is_function_test = 'expected_output' not in first and 'expected' in first
+
+    if is_function_test:
+        try:
+            ns, out, err = _execute_source(code)
+            for test in tests:
+                test_result = {
+                    'input': test.get('input'), 'expected': test.get('expected'),
+                    'actual': None, 'passed': False, 'error': None,
+                    'description': test.get('description', ''),
+                    'is_hidden': test.get('is_hidden', False),
+                }
+                try:
+                    actual = eval(test.get('input'), ns)
+                    test_result['actual'] = actual
+                    if actual == test.get('expected'):
+                        test_result['passed'] = True
+                        result['passed_tests'] += 1
+                    else:
+                        result['failed_tests'] += 1
+                except Exception as e:
+                    test_result['error'] = str(e)
+                    result['failed_tests'] += 1
+                result['test_results'].append(test_result)
+            result['output'] = out + ('\n' + err if err else '')
+        except Exception as e:
+            result['error'] = _error_text(e)
+    else:
+        for i, test in enumerate(tests):
+            input_data = test.get('input', '')
+            expected_output = str(test.get('expected_output', '')).strip()
+            case = {
+                'case_index': i, 'input': input_data,
+                'expected': expected_output, 'actual': '', 'passed': False,
+                'error': None, 'is_hidden': test.get('is_hidden', False),
+                'description': test.get('description', ''),
+            }
+            try:
+                lines = input_data.splitlines() if input_data else None
+                _ns, out, err = _execute_source(code, stdin_lines=lines)
+                case['actual'] = out.strip()
+                if err.strip():
+                    case['passed'] = False
+                    case['error'] = err.strip()
+                    result['failed_tests'] += 1
+                elif case['actual'] == expected_output:
+                    case['passed'] = True
+                    result['passed_tests'] += 1
+                else:
+                    result['failed_tests'] += 1
+                result['output'] += out
+            except Exception as e:
+                case['error'] = _error_text(e)
+                result['failed_tests'] += 1
+            result['test_results'].append(case)
+
+    if result['error'] is None and result['failed_tests'] == 0 and result['passed_tests'] == result['total_tests']:
+        result['status'] = 'passed'
+    elif result['passed_tests'] > 0:
+        result['status'] = 'failed'
+    return result
+
+def main():
+    req = json.loads(sys.stdin.read())
+    mode = req.get('mode', 'tests')
+    max_output = int(req.get('max_output_length', 10000))
+    if mode == 'code':
+        result = _run_simple(req)
+    else:
+        result = _run_tests(req)
+    for key in ('output',):
+        if len(result.get(key) or '') > max_output:
+            result[key] = result[key][:max_output] + '\n... (output truncated)'
+    result['execution_time'] = 0
+    sys.stdout.write(SENTINEL + json.dumps(result, ensure_ascii=False))
+
+if __name__ == '__main__':
+    main()
+'''
 
 
 class CodeExecutor:
     """
-    Secure Python code executor with resource limits and sandboxing.
-
-    Currently implements RestrictedPython mode for basic execution.
-    Docker mode for full isolation will be implemented later.
+    Sandboxed Python code executor (subprocess isolation + timeouts).
     """
 
     def __init__(self, timeout=5, max_output_length=10000):
         """
-        Initialize the code executor.
-
         Args:
             timeout: Maximum execution time in seconds (default: 5)
             max_output_length: Maximum output length in characters (default: 10000)
@@ -32,192 +271,72 @@ class CodeExecutor:
         self.timeout = timeout
         self.max_output_length = max_output_length
 
+    def _spawn(self, request: dict, timeout: float):
+        """Run one sandbox subprocess; return the parsed result dict."""
+        if os.name == 'nt':
+            kwargs = {'creationflags': subprocess.CREATE_NO_WINDOW}
+        else:
+            kwargs = {}
+        try:
+            completed = subprocess.run(
+                [sys.executable, '-I', '-c', _SANDBOX_RUNNER],
+                input=json.dumps(request, ensure_ascii=False),
+                capture_output=True, text=True, timeout=timeout, **kwargs,
+            )
+        except subprocess.TimeoutExpired:
+            raise TimeoutError(f'Execution timed out after {timeout} seconds')
+
+        stdout = completed.stdout or ''
+        if _SENTINEL in stdout:
+            try:
+                return json.loads(stdout.split(_SENTINEL, 1)[1])
+            except json.JSONDecodeError:
+                pass
+        # The runner itself crashed — surface a sanitized error.
+        stderr = (completed.stderr or '').strip().splitlines()
+        return {
+            'status': 'error',
+            'error': '执行环境异常: ' + (stderr[-1] if stderr else 'unknown sandbox failure'),
+            'output': '',
+        }
+
     def execute_code(self, code, mode='restricted', stdin_input=''):
         """
         Execute Python code and return results.
 
-        Args:
-            code: Python code string to execute
-            mode: Execution mode ('restricted' or 'docker')
-            stdin_input: Input string for stdin (default: '')
-
         Returns:
-            dict: {
-                'output': str,  # Combined stdout and stderr
-                'status': str,  # 'success' or 'error'
-                'execution_time': float,  # Milliseconds
-                'error': str  # Error message if status is 'error'
-            }
+            dict: {'output', 'status' ('success'|'error'), 'execution_time', 'error'}
         """
-        if mode == 'restricted':
-            return self._execute_restricted(code, stdin_input)
-        elif mode == 'docker':
+        if mode == 'docker':
             return self._execute_docker(code, stdin_input)
-        else:
+        if mode not in ('restricted',):
             return {
                 'output': '',
                 'status': 'error',
                 'execution_time': 0,
                 'error': f'Invalid execution mode: {mode}'
             }
-
-    def _get_safe_builtins(self, mock_input=None):
-        """Return a dictionary of safe built-ins."""
-        builtins = {
-            'print': print,
-            'len': len,
-            'range': range,
-            'str': str,
-            'int': int,
-            'float': float,
-            'bool': bool,
-            'list': list,
-            'dict': dict,
-            'tuple': tuple,
-            'set': set,
-            'abs': abs,
-            'min': min,
-            'max': max,
-            'sum': sum,
-            'sorted': sorted,
-            'enumerate': enumerate,
-            'zip': zip,
-            'map': map,
-            'filter': filter,
-            'type': type,
-            'isinstance': isinstance,
-            'hasattr': hasattr,
-            'getattr': getattr,
-            'dir': dir,
-            'help': help,
-            '__builtins__': {
-                '__import__': __import__,  # Restricted import
-            }
-        }
-
-        # Add mock_input if provided
-        if mock_input:
-            builtins['input'] = mock_input
-
-        return builtins
-
-    def _check_prohibited_keywords(self, code):
-        """Check code for prohibited keywords."""
-        prohibited_keywords = [
-            'import os',
-            'import sys',
-            'import subprocess',
-            'import socket',
-            'open(',
-            '__import__',
-            'exec(',
-            'eval(',
-            'compile(',
-        ]
-
-        code_lower = code.lower()
-        for keyword in prohibited_keywords:
-            if keyword in code_lower:
-                return f'Prohibited operation detected: {keyword}'
-        return None
-
-    def _execute_restricted(self, code, stdin_input=''):
-        """
-        Execute code using RestrictedPython with basic sandboxing.
-
-        This mode is fast but limited - suitable for learning lessons.
-        Restricted features:
-        - No file I/O
-        - No network access
-        - No subprocess execution
-        - Limited imports
-        """
-        output_buffer = io.StringIO()
-        error_buffer = io.StringIO()
-
-        # Prepare stdin mock if input is provided
-        mock_input = None
-        if stdin_input:
-            input_lines = stdin_input.splitlines()
-            input_iterator = iter(input_lines)
-
-            def mock_input(prompt=''):
-                if prompt:
-                    print(prompt, end='', file=output_buffer)
-                try:
-                    return next(input_iterator)
-                except StopIteration:
-                    raise EOFError("EOF when reading a line")
-
-        start_time = time.time()
-        status = 'success'
-        error_message = None
-
-        # Check for prohibited operations
-        error_msg = self._check_prohibited_keywords(code)
-        if error_msg:
+        if len(code) > MAX_CODE_LENGTH:
             return {
                 'output': '',
                 'status': 'error',
                 'execution_time': 0,
-                'error': error_msg
+                'error': f'Code too long (max {MAX_CODE_LENGTH} characters)'
             }
 
+        start_time = time.time()
         try:
-            # Redirect stdout and stderr
-            with redirect_stdout(output_buffer), redirect_stderr(error_buffer):
-                # Create a restricted namespace
-                namespace = {'__builtins__': self._get_safe_builtins(mock_input)}
+            result = self._spawn({
+                'mode': 'code',
+                'code': code,
+                'stdin_input': stdin_input,
+                'max_output_length': self.max_output_length,
+            }, timeout=self.timeout)
+        except TimeoutError as e:
+            result = {'status': 'error', 'error': str(e), 'output': ''}
 
-                # Execute the code
-                exec(code, namespace)
-
-            output = output_buffer.getvalue()
-            errors = error_buffer.getvalue()
-
-            if errors:
-                output += '\n' + errors
-
-        except Exception as e:
-            status = 'error'
-            error_message = f'{type(e).__name__}: {str(e)}\n\n{traceback.format_exc()}'
-            output = error_message
-
-        end_time = time.time()
-        execution_time = (end_time - start_time) * 1000  # Convert to milliseconds
-
-        # Truncate output if too long
-        if len(output) > self.max_output_length:
-            output = output[:self.max_output_length] + '\n... (output truncated)'
-
-        return {
-            'output': output,
-            'status': status,
-            'execution_time': execution_time,
-            'error': error_message
-        }
-
-    def _execute_docker(self, code, stdin_input='', test_cases=None):
-        """
-        Execute code in isolated Docker container (to be implemented).
-
-        This mode provides full isolation and is suitable for exercises and exams.
-
-        Args:
-            code: Python code to execute
-            stdin_input: Input string for stdin
-            test_cases: Optional list of test cases to run
-
-        Returns:
-            dict: Execution results
-        """
-        # TODO: Implement Docker-based execution
-        return {
-            'output': '',
-            'status': 'error',
-            'execution_time': 0,
-            'error': 'Docker execution mode not yet implemented. Coming soon!'
-        }
+        result['execution_time'] = int((time.time() - start_time) * 1000)
+        return result
 
     def execute_with_tests(self, code, test_cases, timeout=10):
         """
@@ -227,209 +346,51 @@ class CodeExecutor:
         1. stdin/stdout based: {'input': '...', 'expected_output': '...'}
         2. Function-based: {'input': 'func(args)', 'expected': result}
 
-        Args:
-            code: Python code to execute
-            test_cases: List of test case dictionaries or dict with 'tests' key
-            timeout: Maximum execution time in seconds
+        Returns dict with keys: status, total_tests, passed_tests,
+        failed_tests, test_results, execution_time, error, output, message.
 
-        Returns:
-            dict: {
-                'status': str,  # 'passed', 'failed', or 'error'
-                'total_tests': int,
-                'passed_tests': int,
-                'failed_tests': int,
-                'test_results': list,  # Individual test results
-                'execution_time': float,
-                'error': str,
-                'output': str,
-                'message': str
-            }
+        Raises TimeoutError if execution exceeds the time limit.
         """
-        output_buffer = io.StringIO()
-        error_buffer = io.StringIO()
-        start_time = time.time()
-
-        # Initialize results
-        results = {
-            'status': 'error',
-            'total_tests': 0,
-            'passed_tests': 0,
-            'failed_tests': 0,
-            'test_results': [],
-            'execution_time': 0,
-            'error': None,
-            'output': '',
-            'message': ''
-        }
-
-        # Handle test_cases format (list or dict with 'tests' key)
         tests = []
         if isinstance(test_cases, dict):
             tests = test_cases.get('tests', [])
         elif isinstance(test_cases, list):
             tests = test_cases
 
-        if not tests:
-            results['error'] = 'No test cases provided'
-            return results
+        start_time = time.time()
+        result = self._spawn({
+            'mode': 'tests',
+            'code': code,
+            'test_cases': tests,
+            'max_output_length': self.max_output_length,
+        }, timeout=timeout)
 
-        results['total_tests'] = len(tests)
+        result.setdefault('total_tests', len(tests))
+        result.setdefault('passed_tests', 0)
+        result.setdefault('failed_tests', 0)
+        result.setdefault('test_results', [])
+        result['execution_time'] = int((time.time() - start_time) * 1000)
+        result['message'] = f'Passed {result["passed_tests"]}/{result["total_tests"]} tests'
+        return result
 
-        # Check for prohibited operations
-        error_msg = self._check_prohibited_keywords(code)
-        if error_msg:
-            results['error'] = error_msg
-            return results
+    def _execute_docker(self, code, stdin_input='', test_cases=None):
+        """
+        Execute code in isolated Docker container (to be implemented).
 
-        # Determine test type by checking first test case
-        first_test = tests[0]
-        is_function_test = 'expected_output' not in first_test and 'expected' in first_test
-
-        if is_function_test:
-            # Function-based testing: Execute code once, then eval tests
-            try:
-                # Redirect stdout and stderr
-                with redirect_stdout(output_buffer), redirect_stderr(error_buffer):
-                    # Create a restricted namespace
-                    namespace = {'__builtins__': self._get_safe_builtins()}
-
-                    # Execute the user code first (to define functions)
-                    exec(code, namespace)
-
-                    # Run tests
-                    for test in tests:
-                        test_input = test.get('input')
-                        expected = test.get('expected')
-
-                        test_result = {
-                            'input': test_input,
-                            'expected': expected,
-                            'actual': None,
-                            'passed': False,
-                            'error': None,
-                            'description': test.get('description', ''),
-                            'is_hidden': test.get('is_hidden', False)
-                        }
-
-                        try:
-                            # Evaluate the test input expression in the same namespace
-                            actual = eval(test_input, namespace)
-                            test_result['actual'] = actual
-
-                            # Compare results
-                            if actual == expected:
-                                test_result['passed'] = True
-                                results['passed_tests'] += 1
-                            else:
-                                test_result['passed'] = False
-                                results['failed_tests'] += 1
-
-                        except Exception as e:
-                            test_result['passed'] = False
-                            test_result['error'] = str(e)
-                            results['failed_tests'] += 1
-
-                        results['test_results'].append(test_result)
-
-                # Determine final status
-                if results['failed_tests'] == 0 and results['passed_tests'] == results['total_tests']:
-                    results['status'] = 'passed'
-                elif results['failed_tests'] > 0:
-                    results['status'] = 'failed'
-                else:
-                    results['status'] = 'error'
-
-                output = output_buffer.getvalue()
-                errors = error_buffer.getvalue()
-
-                if errors:
-                    output += '\n' + errors
-
-                results['output'] = output
-
-            except Exception as e:
-                results['status'] = 'error'
-                results['error'] = f'{type(e).__name__}: {str(e)}\n\n{traceback.format_exc()}'
-        else:
-            # stdin/stdout based testing: Execute code for each test
-            original_timeout = self.timeout
-            self.timeout = timeout
-
-            for i, test in enumerate(tests):
-                input_data = test.get('input', '')
-                expected_output = test.get('expected_output', '').strip()
-
-                try:
-                    exec_result = self.execute_code(code, mode='restricted', stdin_input=input_data)
-
-                    actual_output = exec_result['output'].strip()
-
-                    # Check for execution errors first
-                    if exec_result['status'] == 'error':
-                        passed = False
-                        error = exec_result.get('error')
-                    else:
-                        # Compare output
-                        passed = (actual_output == expected_output)
-                        error = None
-
-                    if passed:
-                        results['passed_tests'] += 1
-                    else:
-                        results['failed_tests'] += 1
-
-                    results['test_results'].append({
-                        'case_index': i,
-                        'input': input_data,
-                        'expected': expected_output,
-                        'actual': actual_output,
-                        'passed': passed,
-                        'error': error,
-                        'is_hidden': test.get('is_hidden', False),
-                        'description': test.get('description', '')
-                    })
-
-                except Exception as e:
-                    results['failed_tests'] += 1
-                    results['test_results'].append({
-                        'case_index': i,
-                        'input': input_data,
-                        'expected': expected_output,
-                        'actual': '',
-                        'passed': False,
-                        'error': str(e),
-                        'is_hidden': test.get('is_hidden', False),
-                        'description': test.get('description', '')
-                    })
-
-            self.timeout = original_timeout
-
-            # Determine final status
-            if results['passed_tests'] == results['total_tests']:
-                results['status'] = 'passed'
-            elif results['passed_tests'] > 0:
-                results['status'] = 'failed'
-            else:
-                results['status'] = 'error'
-
-        end_time = time.time()
-        results['execution_time'] = (end_time - start_time) * 1000
-        results['message'] = f'Passed {results["passed_tests"]}/{results["total_tests"]} tests'
-
-        return results
+        This mode provides full isolation and is suitable for exercises and exams.
+        """
+        return {
+            'output': '',
+            'status': 'error',
+            'execution_time': 0,
+            'error': 'Docker execution mode not yet implemented. Coming soon!'
+        }
 
 
 # Convenience function for simple execution
 def execute_python_code(code, timeout=5):
     """
     Simple wrapper function to execute Python code.
-
-    Args:
-        code: Python code string
-        timeout: Maximum execution time in seconds
-
-    Returns:
-        dict: Execution results
     """
     executor = CodeExecutor(timeout=timeout)
     return executor.execute_code(code, mode='restricted')

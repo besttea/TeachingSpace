@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.utils import timezone
 import random
 import uuid
 
@@ -109,14 +110,15 @@ class Question(models.Model):
 
     def get_specific_question(self):
         """Get the specific question instance (MC, Code, Essay, or T/F)"""
-        if self.question_type == 'multiple_choice':
-            return getattr(self, 'multiplechoicequestion', None)
-        elif self.question_type == 'code':
-            return getattr(self, 'codequestion', None)
-        elif self.question_type == 'essay':
-            return getattr(self, 'essayquestion', None)
-        elif self.question_type == 'true_false':
-            return getattr(self, 'truefalseavequestion', None)
+        accessors = {
+            'multiple_choice': 'multiplechoicequestion',
+            'code': 'codequestion',
+            'essay': 'essayquestion',
+            'true_false': 'truefalsequestion',
+        }
+        accessor = accessors.get(self.question_type)
+        if accessor:
+            return getattr(self, accessor, None)
         return None
 
 
@@ -294,6 +296,21 @@ class StudentExam(models.Model):
         )['total'] or 0
 
         return int((awarded_points / total_points) * 100)
+
+    def remaining_seconds(self):
+        """Server-side timer: seconds left, derived from start_time.
+
+        Client-side countdowns are cosmetic; this is the value save/submit
+        endpoints enforce (see views).
+        """
+        if self.end_time:
+            return 0
+        elapsed = (timezone.now() - self.start_time).total_seconds()
+        return max(0, int(self.time_remaining_seconds - elapsed))
+
+    def is_timed_out(self):
+        """Whether the exam duration has elapsed (server-side check)."""
+        return self.remaining_seconds() <= 0
 
     def is_passing(self):
         """Check if the exam attempt passed"""

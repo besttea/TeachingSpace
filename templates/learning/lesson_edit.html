@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load cell_filters %}
 
 {% block title %}Edit: {{ lesson.title }} - Python Learning{% endblock %}
 
@@ -273,7 +274,7 @@
                 <!-- Cell Content (View Mode) -->
                 <div class="cell-content" x-show="editingCell !== {{ cell.id }}">
                     {% if cell.cell_type == 'text' %}
-                    <div class="markdown-content" x-html="renderMarkdown(`{{ cell.data.markdown|escapejs }}`)"></div>
+                    <div class="markdown-content" x-html="renderMarkdown(`{{ cell.data.markdown|escapejs_tick }}`)"></div>
 
                     {% elif cell.cell_type == 'code' %}
                     <pre style="margin: 0; padding: 1rem; background: #282c34; border-radius: 4px; overflow-x: auto;"><code style="display: block; white-space: pre-wrap; word-break: break-word; font-family: 'Courier New', monospace; color: #abb2bf; line-height: 1.5;">{{ cell.data.source }}</code></pre>
@@ -394,12 +395,15 @@
 {% endblock %}
 
 {% block extra_js %}
+{{ cells_json|json_script:"cells-data" }}
 <script>
 function notebookEditor() {
     return {
         editingCell: null,
         cellData: {},
-        cellsData: {{ cells_json|safe }},  // Store all cells data
+        // json_script escapes </script> and friends; parsed safely from a
+        // dedicated script tag instead of inline JSON with |safe.
+        cellsData: JSON.parse(document.getElementById('cells-data').textContent),
         sortable: null,
 
         init() {
@@ -417,14 +421,12 @@ function notebookEditor() {
 
         renderMarkdown(markdown) {
             if (typeof marked !== 'undefined' && markdown) {
-                const html = marked.parse(markdown);
-                // We need to render math after HTML is inserted, but this function just returns string.
-                // Alpine x-html will insert it.
-                // To trigger math rendering, we can use a small timeout or $nextTick if we were inside the component logic.
-                // Since this is just a helper, we'll try to render math on the whole document periodically or rely on init.
-                // Better approach: return html, and use x-effect or watcher in the component to render math.
-                
-                // For now, let's just return HTML. The preview in edit mode might not render math instantly without extra logic.
+                let html = marked.parse(markdown);
+                // Sanitize raw HTML that marked passes through (XSS guard).
+                if (typeof DOMPurify !== 'undefined') {
+                    html = DOMPurify.sanitize(html);
+                }
+                // To trigger math rendering, use a small timeout or $nextTick.
                 setTimeout(() => {
                     if (typeof renderMathInElement !== 'undefined') {
                         const previews = document.querySelectorAll('.markdown-preview');
@@ -440,10 +442,15 @@ function notebookEditor() {
                         });
                     }
                 }, 100);
-                
+
                 return html;
             }
-            return markdown || '<p class="text-muted">No content</p>';
+            if (markdown) {
+                // No renderer available: return escaped TEXT, never raw markdown.
+                return markdown
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            }
+            return '<p class="text-muted">No content</p>';
         },
 
         updateCellOrders() {

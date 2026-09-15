@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load cell_filters %}
 
 {% block title %}{{ lesson.title }} - Python Learning{% endblock %}
 
@@ -224,7 +225,7 @@
             {% if cell.cell_type == 'text' %}
             <!-- Text/Markdown Cell -->
             <div class="cell-content text-cell">
-                <div class="markdown-content" x-html="renderMarkdown(`{{ cell.data.markdown|escapejs }}`)"></div>
+                <div class="markdown-content" x-html="renderMarkdown(`{{ cell.data.markdown|escapejs_tick }}`)"></div>
             </div>
 
             {% elif cell.cell_type == 'code' %}
@@ -373,10 +374,20 @@ function notebookViewer() {
         },
 
         renderMarkdown(markdown) {
-            if (typeof marked !== 'undefined') {
-                return marked.parse(markdown);
+            if (typeof marked !== 'undefined' && markdown) {
+                let html = marked.parse(markdown);
+                // Sanitize raw HTML that marked passes through (XSS guard).
+                if (typeof DOMPurify !== 'undefined') {
+                    html = DOMPurify.sanitize(html);
+                }
+                return html;
             }
-            return markdown;
+            if (markdown) {
+                // No renderer available: return escaped TEXT, never raw markdown.
+                return markdown
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            }
+            return '';
         },
 
         async executeCell(cellId) {

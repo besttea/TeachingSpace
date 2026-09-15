@@ -284,9 +284,14 @@ python manage.py optimize_cell_images --settings=config.settings.development
   - Interactive annotations (future: clickable timestamps)
 
 ### Code Execution Security
-- **Docker isolation**: User code runs in isolated containers with resource limits
-- **RestrictedPython**: For simple code examples in Learning Class
-- **Security measures**: Network disabled, memory limits, CPU quotas, timeout enforcement
+- **Subprocess isolation**: User code runs in a fresh `python -I` subprocess — never inside the Django process ([apps/code_runner/executor.py](apps/code_runner/executor.py))
+  - Hard wall-clock timeout enforced by the parent (kills the subprocess)
+  - Strict builtins whitelist: no `__import__` except a small module allowlist (math/random/json/re/collections/...), no `open`/`eval`/`exec`/`compile`, no introspection (`type`/`getattr`/`dir`)
+  - AST check rejects access to `_`-prefixed attributes (blocks `().__class__.__mro__` gadget chains)
+  - Optional RestrictedPython hardening: installing the package (already in requirements.txt) strengthens compilation automatically
+  - Known limitation: the subprocess runs as the same OS user (file/network access at OS level possible); full isolation requires the Docker mode (stub `_execute_docker`)
+- **RestrictedPython**: Optional hardening layer for code compilation (used when installed)
+- **Security measures**: Network disabled, memory limits, CPU quotas, timeout enforcement (planned for Docker mode)
 
 ### AI Agent Architecture
 - **Base Agent Class**: `apps/ai_agents/base_agent.py` - Common functionality for all AI agents

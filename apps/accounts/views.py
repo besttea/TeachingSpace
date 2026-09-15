@@ -1,9 +1,13 @@
 from django.shortcuts import render, redirect
 from django.contrib.auth import login, authenticate, logout
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from django.contrib import messages
-from django.db.models import Count, Sum
+from django.db import IntegrityError
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.http import require_http_methods
 from datetime import timedelta
 
 from .models import User, StudentProfile
@@ -11,19 +15,22 @@ from apps.learning.models import Enrollment, LessonProgress
 from apps.training.models import Submission
 from apps.examination.models import StudentExam
 
+#: Max profile picture size (5 MB)
+MAX_PROFILE_PICTURE_SIZE = 5 * 1024 * 1024
+
 
 def register_view(request):
-    """User registration view"""
+    """User registration view (self-registration is student-only)"""
     if request.user.is_authenticated:
         return redirect('accounts:dashboard')
 
     if request.method == 'POST':
-        # Get form data
-        username = request.POST.get('username')
-        email = request.POST.get('email')
+        # Get form data. user_type is fixed to 'student' — instructor/admin
+        # accounts must be created by an administrator, never self-assigned.
+        username = request.POST.get('username', '').strip()
+        email = request.POST.get('email', '').strip()
         password = request.POST.get('password')
         password_confirm = request.POST.get('password_confirm')
-        user_type = request.POST.get('user_type', 'student')
 
         # Validation
         if not all([username, email, password, password_confirm]):
@@ -34,8 +41,12 @@ def register_view(request):
             messages.error(request, 'Passwords do not match.')
             return render(request, 'accounts/register.html')
 
-        if len(password) < 8:
-            messages.error(request, 'Password must be at least 8 characters long.')
+        # Enforce Django's configured password validators
+        try:
+            validate_password(password, user=User(username=username, email=email))
+        except ValidationError as e:
+            for message_text in e.messages:
+                messages.error(request, message_text)
             return render(request, 'accounts/register.html')
 
         if User.objects.filter(username=username).exists():
@@ -52,22 +63,24 @@ def register_view(request):
                 username=username,
                 email=email,
                 password=password,
-                user_type=user_type
+                user_type='student'
             )
 
-            # Create student profile if user type is student
-            if user_type == 'student':
-                python_experience = request.POST.get('python_experience', 'beginner')
-                StudentProfile.objects.create(
-                    user=user,
-                    python_experience=python_experience
-                )
+            python_experience = request.POST.get('python_experience', 'beginner')
+            StudentProfile.objects.create(
+                user=user,
+                python_experience=python_experience
+            )
 
             # Log the user in
             login(request, user)
             messages.success(request, f'Welcome {username}! Your account has been created.')
             return redirect('accounts:dashboard')
 
+        except IntegrityError:
+            # Race on username/email uniqueness
+            messages.error(request, 'Username or email already exists.')
+            return render(request, 'accounts/register.html')
         except Exception as e:
             messages.error(request, f'Error creating account: {str(e)}')
             return render(request, 'accounts/register.html')
@@ -95,8 +108,17 @@ def login_view(request):
             login(request, user)
             messages.success(request, f'Welcome back, {user.username}!')
 
-            # Redirect to next parameter or dashboard
-            next_url = request.GET.get('next', 'accounts:dashboard')
+            # Redirect to next parameter (same-host / relative URLs only)
+            # or the dashboard. Never trust an arbitrary external URL.
+            next_url = request.GET.get('next', '')
+            if not url_has_allowed_host_and_scheme(
+                next_url,
+                allowed_hosts={request.get_host()},
+                require_https=request.is_secure(),
+            ):
+                next_url = ''
+            if not next_url:
+                next_url = 'accounts:dashboard'
             return redirect(next_url)
         else:
             messages.error(request, 'Invalid username or password.')
@@ -105,8 +127,9 @@ def login_view(request):
     return render(request, 'accounts/login.html')
 
 
+@require_http_methods(["POST"])
 def logout_view(request):
-    """User logout view"""
+    """User logout view (POST-only: logout is a state change)"""
     logout(request)
     messages.success(request, 'You have been logged out successfully.')
     return redirect('home')
@@ -204,12 +227,25 @@ def profile_view(request):
         user = request.user
         user.first_name = request.POST.get('first_name', '')
         user.last_name = request.POST.get('last_name', '')
-        user.email = request.POST.get('email', user.email)
+        new_email = request.POST.get('email', user.email).strip()
         user.bio = request.POST.get('bio', '')
 
-        # Handle profile picture upload
+        # Email must stay unique (and not be silently reset by a blank field)
+        if new_email and new_email != user.email and User.objects.filter(email=new_email).exists():
+            messages.error(request, 'Email already exists.')
+            return redirect('accounts:profile')
+        user.email = new_email
+
+        # Handle profile picture upload (size + type checked)
         if 'profile_picture' in request.FILES:
-            user.profile_picture = request.FILES['profile_picture']
+            upload = request.FILES['profile_picture']
+            if upload.size > MAX_PROFILE_PICTURE_SIZE:
+                messages.error(request, 'Profile picture must be smaller than 5 MB.')
+                return redirect('accounts:profile')
+            if not (upload.content_type or '').startswith('image/'):
+                messages.error(request, 'Profile picture must be an image file.')
+                return redirect('accounts:profile')
+            user.profile_picture = upload
 
         user.save()
 
