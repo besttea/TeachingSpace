@@ -188,6 +188,11 @@ python manage.py test_ai_agents --settings=config.settings.development
 ### Notebook & Video Commands
 
 ```bash
+# Parse a ClassLib notebook into an AI-friendly digest (shared notebook parser)
+python apps/core/notebook_parser.py "ClassLib/第一课_基本数据结构.ipynb"
+# Full structured JSON / section-grouped / learning-app Cell payloads
+python apps/core/notebook_parser.py "ClassLib/第一课_基本数据结构.ipynb" --format json|sections|cells
+
 # Export notebook to various formats
 python manage.py export_notebook --lesson-id 1 --format json --settings=config.settings.development
 python manage.py export_notebook --lesson-id 1 --format pdf --settings=config.settings.development
@@ -244,6 +249,13 @@ python manage.py optimize_cell_images --settings=config.settings.development
   - JSON format compatible with Jupyter notebooks (.ipynb)
   - Export to PDF, HTML, or standalone Python script
   - Import from .ipynb files with cell conversion
+
+### Notebook Material Parsing (ClassLib → content)
+
+- **Shared parser**: `apps/core/notebook_parser.py` (pure stdlib, no Django dependency) is the single source of truth for parsing `ClassLib/*.ipynb` materials. Both management commands and the Claude Code skill `.claude/skills/notebook-reader/` use it.
+- Conventions it understands: `第X章` chapter headings (Chinese numerals OK), `X.Y 标题` lesson sections, `X.Y.Z` subsections; noise cells (LaTeX symbol tables, pasted README pages, `!pip` cells, TOC links, empty cells) are flagged and excluded from AI-generated content.
+- Management commands `import_notebook` (splits into lessons at X.Y headings) and `load_notebook_data` (single lesson) share it; both are idempotent (re-run clears and rebuilds cells) and never create users with hardcoded passwords.
+- **In-app AI tool use**: the chat assistant (`apps/chat/ai_service.py`) calls the parser through Anthropic tool-use tools defined in `apps/chat/notebook_tools.py` (`list_notebooks` / `get_notebook_digest` / `get_notebook_section`). Tools are safe server-side functions (filename whitelist, size caps, noise filtering); the model only picks tool + arguments. AI agents reuse this layer when wired up.
 
 ### Video Generation Architecture
 - **Manim Integration**:

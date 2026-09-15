@@ -1,49 +1,54 @@
-import json
-import re
+"""
+Imports a Jupyter notebook (.ipynb) as a Course, splitting content into
+lessons at ``X.Y`` section headings (e.g. ``## 1.1 数字常量``).
+
+Shares the notebook parser with the ``notebook-reader`` Claude Code skill
+(apps.core.notebook_parser), so database imports match what AI-side
+tooling sees. Re-running the command is safe: existing cells of a target
+lesson are cleared before re-import.
+"""
+
 import os
+import secrets
+
 from django.core.management.base import BaseCommand
-from django.conf import settings
-from apps.learning.models import Course, Chapter, Lesson, Cell
+
 from apps.accounts.models import User
+from apps.core.notebook_parser import cell_payload, parse_notebook
+from apps.learning.models import Cell, Chapter, Course, Lesson
+
 
 class Command(BaseCommand):
-    help = 'Imports a Jupyter Notebook as a Course'
+    help = 'Imports a Jupyter Notebook as a Course (lessons split at X.Y sections)'
 
     def add_arguments(self, parser):
         parser.add_argument('file_path', type=str, help='Path to the .ipynb file')
-        parser.add_argument('--course-name', type=str, default='Python Basic Structures', help='Name of the course')
+        parser.add_argument('--course-name', type=str, default='Python Basic Structures',
+                            help='Name of the course')
+        parser.add_argument('--instructor', type=str, default='',
+                            help='Username of an existing instructor (default: first superuser)')
+        parser.add_argument('--instructor-password', type=str, default='',
+                            help='Password for a newly created instructor (default: random, printed once)')
 
     def handle(self, *args, **options):
         file_path = options['file_path']
-        course_name = options['course_name']
 
         if not os.path.exists(file_path):
             self.stdout.write(self.style.ERROR(f'File not found: {file_path}'))
             return
 
-        with open(file_path, 'r', encoding='utf-8') as f:
-            notebook_data = json.load(f)
+        doc = parse_notebook(file_path)
+        stats = doc.stats()
+        self.stdout.write(
+            f'Notebook: {doc.title} | {stats["total"]} cells '
+            f'({stats["markdown"]} text, {stats["code"]} code), {len(doc.sections)} sections'
+        )
 
-        # Get or create instructor (admin)
-        instructor = User.objects.filter(username='admin').first()
-        if not instructor:
-            instructor = User.objects.filter(is_superuser=True).first()
-        
-        if not instructor:
-            self.stdout.write(self.style.WARNING('No admin or superuser found. Creating a default instructor.'))
-            try:
-                instructor = User.objects.create_superuser('admin', 'admin@example.com', 'adminpass')
-            except Exception as e:
-                # Fallback if email exists or other error
-                self.stdout.write(self.style.WARNING(f'Failed to create admin: {e}. Trying to get any user.'))
-                instructor = User.objects.first()
-                if not instructor:
-                     self.stdout.write(self.style.ERROR('No users found and cannot create one. Aborting.'))
-                     return
+        instructor = self._resolve_instructor(options)
 
         # Create Course
         course, created = Course.objects.get_or_create(
-            title=course_name,
+            title=options['course_name'],
             defaults={
                 'description': 'Imported from Jupyter Notebook',
                 'instructor': instructor,
@@ -56,24 +61,8 @@ class Command(BaseCommand):
         else:
             self.stdout.write(f'Using existing course: {course.title}')
 
-        # Determine Chapter Title from Content
-        chapter_title = "Chapter 1" # Default
-        # Scan for "第*章" pattern
-        for cell in notebook_data.get('cells', []):
-            if cell.get('cell_type') == 'markdown':
-                source_text = ''.join(cell.get('source', [])).strip()
-                # Check for HTML H1 containing 第*章
-                h1_match = re.search(r'<h1[^>]*>.*(第.+章.*)</h1>', source_text, re.IGNORECASE)
-                if h1_match:
-                    chapter_title = h1_match.group(1).strip()
-                    break
-                # Check for Markdown headers containing 第*章
-                md_match = re.search(r'^#{1,3}\s+.*(第.+章.*)', source_text, re.MULTILINE)
-                if md_match:
-                    chapter_title = md_match.group(1).strip()
-                    break
-
-        # Create Chapter
+        # Create Chapter (title from the notebook's 第X章 heading)
+        chapter_title = doc.chapters[0] if doc.chapters else 'Chapter 1'
         chapter, created = Chapter.objects.get_or_create(
             course=course,
             title=chapter_title,
@@ -81,103 +70,64 @@ class Command(BaseCommand):
         )
         self.stdout.write(self.style.SUCCESS(f'Target Chapter: {chapter.title}'))
 
-        # Process Cells
-        cells = notebook_data.get('cells', [])
-        
-        # Create an initial lesson for intro content (before 1.1)
-        current_lesson, _ = Lesson.objects.get_or_create(
-            chapter=chapter,
-            title="Introduction",
-            defaults={
-                'order': 0,
-                'status': 'published',
-                'created_by': instructor
-            }
-        )
-        
-        lesson_order = 1
-        cell_order = 1
-
-        for cell in cells:
-            cell_type = cell.get('cell_type')
-            source_lines = cell.get('source', [])
-            source_text = ''.join(source_lines) if isinstance(source_lines, list) else source_lines
-
-            # Check for Section Headers 1.x to start new Lesson
-            is_new_lesson = False
-            lesson_title = ""
-
-            if cell_type == 'markdown':
-                lines = source_text.strip().split('\n')
-                # Iterate through lines to find the header
-                for line in lines:
-                    line = line.strip()
-                    # Match headers that start with "1.x " (e.g., "### 1.1 数字常量")
-                    # Exclude 1.5.1 (Level 3 numbering)
-                    # Regex: start with #s, whitespace, then "1.", then digits, then space or end of line.
-                    match = re.match(r'^(#{1,6})\s+(1\.\d+\s+.*)', line)
-                    if match:
-                        lesson_title = match.group(2).strip()
-                        is_new_lesson = True
-                        break # Found the header for this cell
-                    else:
-                        # Also check HTML headers if they contain "1.x "
-                        html_match = re.match(r'^<h[1-6][^>]*>\s*(1\.\d+\s+.*)</h[1-6]>', line, re.IGNORECASE)
-                        if html_match:
-                            lesson_title = html_match.group(1).strip()
-                            is_new_lesson = True
-                            break
-
-            if is_new_lesson:
-                # Create new lesson
-                current_lesson, created = Lesson.objects.get_or_create(
-                    chapter=chapter,
-                    title=lesson_title,
-                    defaults={
-                        'order': lesson_order,
-                        'status': 'published',
-                        'created_by': instructor
-                    }
-                )
-                if created:
-                    self.stdout.write(self.style.SUCCESS(f'Created lesson: {lesson_title}'))
-                    lesson_order += 1
-                else:
-                    self.stdout.write(f'Using existing lesson: {lesson_title}')
-                
-                cell_order = 1 # Reset cell order for new lesson
-
-            # Prepare Cell Data
-            db_cell_type = 'text'
-            cell_data = {}
-
-            if cell_type == 'markdown':
-                db_cell_type = 'text'
-                cell_data = {'markdown': source_text}
-            elif cell_type == 'code':
-                db_cell_type = 'code'
-                outputs = cell.get('outputs', [])
-                output_text = ''
-                for output in outputs:
-                    if 'text' in output:
-                        output_text += ''.join(output['text'])
-                    elif 'data' in output and 'text/plain' in output['data']:
-                        output_text += ''.join(output['data']['text/plain'])
-                
-                cell_data = {
-                    'source': source_text,
-                    'output': output_text,
-                    'execution_count': cell.get('execution_count') or 0
+        # Create lessons from sections; the intro section (cells before the
+        # first X.Y heading) becomes the "Introduction" lesson.
+        for idx, section in enumerate(doc.sections):
+            lesson_title = section.label if section.number else 'Introduction'
+            lesson, _ = Lesson.objects.get_or_create(
+                chapter=chapter,
+                title=lesson_title,
+                defaults={
+                    'order': idx,
+                    'status': 'published',
+                    'created_by': instructor
                 }
-
-            # Create Cell
-            Cell.objects.create(
-                lesson=current_lesson,
-                cell_type=db_cell_type,
-                order=cell_order,
-                data=cell_data,
-                created_by=instructor
             )
-            cell_order += 1
+            # Re-import safety: wipe existing cells so order never collides.
+            removed, _ = lesson.cells.all().delete()
+            if removed:
+                self.stdout.write(f'Cleared {removed} existing cells from lesson: {lesson_title}')
 
-        self.stdout.write(self.style.SUCCESS('Successfully imported notebook content'))
+            for order, item in enumerate(section.cells):
+                payload = cell_payload(item)
+                if payload is None:
+                    continue
+                Cell.objects.create(
+                    lesson=lesson,
+                    cell_type=payload['cell_type'],
+                    order=order,
+                    data=payload['data'],
+                    created_by=instructor
+                )
+
+            self.stdout.write(self.style.SUCCESS(
+                f'Lesson "{lesson_title}": {len(section.cells)} cells'
+            ))
+
+        if stats['noise']:
+            self.stdout.write(self.style.WARNING(
+                f'{stats["noise"]} noise cells (symbol tables / TOC / README pages / setup) '
+                f'were imported as-is; trim them in the lesson editor if needed.'
+            ))
+        self.stdout.write(self.style.SUCCESS(
+            f'Successfully imported notebook into {len(doc.sections)} lessons of "{chapter.title}"'
+        ))
+
+    def _resolve_instructor(self, options):
+        """Pick an instructor account; create one only with an explicit or
+        randomly generated password — never a hardcoded one."""
+        username = options['instructor']
+        user = User.objects.filter(username=username).first() if username else None
+        if not user:
+            user = User.objects.filter(is_superuser=True).first()
+        if user:
+            return user
+
+        username = username or 'admin'
+        password = options['instructor_password'] or secrets.token_urlsafe(12)
+        user = User.objects.create_superuser(username, f'{username}@example.com', password)
+        self.stdout.write(self.style.WARNING(
+            f'Created instructor "{username}" with generated password: {password} '
+            f'(keep it safe and change it soon)'
+        ))
+        return user

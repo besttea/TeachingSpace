@@ -86,9 +86,11 @@ def send_message(request):
             content=user_message
         )
 
-        # Get conversation history
+        # Get conversation history (most recent 20 messages, chronological)
         history = []
-        previous_messages = conversation.messages.order_by('created_at')[:20]  # Last 20 messages
+        previous_messages = list(reversed(
+            conversation.messages.order_by('-created_at')[:20]
+        ))
         for msg in previous_messages:
             if msg.id != user_msg.id:  # Exclude the current message
                 history.append({

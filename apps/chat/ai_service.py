@@ -1,45 +1,61 @@
 """
 AI-powered chat service using Claude API to suggest learning materials.
+
+The assistant can *use tools* (Anthropic tool-use) to read teaching
+materials: list notebooks in ClassLib, fetch a notebook's structure, or
+read one section's content. Tools are safe server-side functions in
+``apps.chat.notebook_tools`` wrapping the shared parser in
+``apps.core.notebook_parser`` — the model only picks tool + arguments.
 """
 
-import os
 import json
-from typing import List, Dict, Any
+import logging
+import os
+from typing import Any, Dict, List, Optional
+
 from anthropic import Anthropic
 from django.conf import settings
+
 from .models import LearningResource
+from .notebook_tools import MAX_RESULT_CHARS, TOOL_SCHEMAS, execute_tool
+
+logger = logging.getLogger(__name__)
+
+#: Maximum tool-use rounds per message (prevents runaway loops).
+MAX_TOOL_ROUNDS = 3
 
 
 class ChatAIService:
     """Service for AI-powered chat responses"""
 
-    def __init__(self):
-        # Get API key from Django settings (which loads from .env via python-decouple)
-        api_key = getattr(settings, 'ANTHROPIC_API_KEY', '')
-        base_url = getattr(settings, 'ANTHROPIC_API_BASE_URL', '')
-
-        # Initialize Anthropic client with optional base_url
-        if api_key:
-            if base_url:
-                self.client = Anthropic(api_key=api_key, base_url=base_url)
-            else:
-                self.client = Anthropic(api_key=api_key)
+    def __init__(self, client=None):
+        # A client may be injected (tests); otherwise build it from settings.
+        if client is not None:
+            self.client = client
         else:
-            self.client = None
+            api_key = getattr(settings, 'ANTHROPIC_API_KEY', '')
+            base_url = getattr(settings, 'ANTHROPIC_API_BASE_URL', '')
+            if api_key:
+                if base_url:
+                    self.client = Anthropic(api_key=api_key, base_url=base_url)
+                else:
+                    self.client = Anthropic(api_key=api_key)
+            else:
+                self.client = None
 
         self.model = getattr(settings, 'ANTHROPIC_MODEL', '')
 
     def get_available_resources(self) -> List[Dict[str, Any]]:
-        """Get list of available learning resources from Classlib directory"""
+        """Get list of available learning resources (no filesystem paths —
+        filenames only, never sent to the LLM)."""
         resources = []
-        classlib_dir = os.path.join(settings.BASE_DIR, 'Classlib')
+        classlib_dir = os.path.join(settings.BASE_DIR, 'ClassLib')
 
         if os.path.exists(classlib_dir):
             for filename in os.listdir(classlib_dir):
                 if filename.endswith(('.ipynb', '.py', '.md')):
                     resources.append({
                         'filename': filename,
-                        'path': os.path.join(classlib_dir, filename),
                         'type': filename.split('.')[-1]
                     })
 
@@ -55,6 +71,27 @@ class ChatAIService:
             })
 
         return resources
+
+    def _build_system_prompt(self) -> str:
+        return """你是一个Python编程学习助手，服务于一个 Python 教学平台。你的任务是：
+1. 理解学生想要学习或询问的内容
+2. 使用工具查询教学资料（notebook），基于资料的真实内容回答
+3. 用中文友好地回答学生的问题
+
+你可以使用以下工具（教学资料查询）：
+- list_notebooks: 列出可用的 notebook 资料及其章节结构
+- get_notebook_digest: 查看某个 notebook 的结构摘要
+- get_notebook_section: 读取某个 notebook 中某一节的完整内容（含代码与运行输出）
+
+工具使用规则：
+- 回答具体知识点（概念、语法、示例、运行结果）前，先调用工具获取真实内容；不要凭记忆编造
+- 回答"有什么资料/课程/目录"类问题，调用 list_notebooks
+- 回答"某节讲了什么"类问题，调用 get_notebook_section 读取该节
+- 回答时注明内容出处（如"根据《第一课》1.2 节"）
+- 工具未找到内容时，如实告知学生，并建议用 list_notebooks 查看现有资料
+- 代码相关回答中给出的示例代码应与资料风格一致
+
+始终保持友好、鼓励和专业的语气。"""
 
     def generate_response(self, user_message: str, conversation_history: List[Dict[str, str]] = None) -> Dict[str, Any]:
         """
@@ -73,23 +110,6 @@ class ChatAIService:
         # Get available resources
         available_resources = self.get_available_resources()
 
-        # Build system prompt
-        system_prompt = f"""你是一个Python编程学习助手。你的任务是：
-1. 理解学生想要学习什么内容
-2. 根据可用的学习资源，向学生推荐最合适的学习材料
-3. 用中文友好地回答学生的问题
-
-可用的学习资源：
-{json.dumps(available_resources, ensure_ascii=False, indent=2)}
-
-当推荐学习资源时，请以如下格式提供：
-- 资源标题
-- 适合原因
-- 难度等级
-- 包含的主题
-
-始终保持友好、鼓励和专业的语气。"""
-
         # If no API key, provide fallback response
         if not self.client:
             return self._fallback_response(user_message, available_resources)
@@ -107,16 +127,50 @@ class ChatAIService:
                 "content": user_message
             })
 
-            # Call Claude API
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=2000,
-                system=system_prompt,
-                messages=messages
-            )
+            # Tool-use loop: let the model query materials, then answer.
+            response_text = ""
+            tool_used = False
+            for _ in range(MAX_TOOL_ROUNDS):
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=2000,
+                    system=self._build_system_prompt(),
+                    messages=messages,
+                    tools=TOOL_SCHEMAS,
+                )
 
-            # Extract response
-            response_text = response.content[0].text
+                tool_uses = [b for b in response.content if b.type == 'tool_use']
+                response_text += "".join(
+                    b.text for b in response.content if b.type == 'text'
+                )
+
+                if not tool_uses:
+                    break
+
+                # Record the assistant turn (with its tool calls)…
+                messages.append({
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": b.text}
+                        if b.type == 'text' else
+                        {"type": "tool_use", "id": b.id, "name": b.name, "input": b.input}
+                        for b in response.content
+                    ]
+                })
+                # …and the tool results as a user turn.
+                tool_results = []
+                for block in tool_uses:
+                    result = execute_tool(block.name, block.input or {})
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": json.dumps(result, ensure_ascii=False)[:MAX_RESULT_CHARS],
+                    })
+                    tool_used = True
+                messages.append({"role": "user", "content": tool_results})
+
+            if not response_text:
+                response_text = "（未生成回答）"
 
             # Extract suggested resources from response
             suggested_resources = self._extract_suggestions(response_text, available_resources)
@@ -124,12 +178,16 @@ class ChatAIService:
             return {
                 'response': response_text,
                 'suggested_resources': suggested_resources,
-                'success': True
+                'success': True,
+                'tools_used': tool_used,
             }
 
         except Exception as e:
+            # Don't leak internal error details to students (except in DEBUG).
+            logger.exception("Chat AI request failed")
+            detail = str(e) if getattr(settings, 'DEBUG', False) else '请稍后再试'
             return {
-                'response': f"抱歉，我在处理你的请求时遇到了问题：{str(e)}",
+                'response': f"抱歉，我在处理你的请求时遇到了问题：{detail}",
                 'suggested_resources': [],
                 'success': False,
                 'error': str(e)

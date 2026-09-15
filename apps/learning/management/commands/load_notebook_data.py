@@ -1,24 +1,32 @@
 """
-Management command to load Jupyter notebook data from Classlib directory into the database.
+Management command to load a Jupyter notebook from the ClassLib directory
+into the database as a single lesson (all cells, in original order).
+
+Shares the notebook parser with the ``notebook-reader`` Claude Code skill
+(apps.core.notebook_parser). Re-running the command clears and rebuilds
+the lesson's cells, so it is idempotent.
 """
 
-import json
 import os
-from django.core.management.base import BaseCommand
+import secrets
+
 from django.conf import settings
+from django.core.management.base import BaseCommand
+
 from apps.accounts.models import User
-from apps.learning.models import Course, Chapter, Lesson, Cell
+from apps.core.notebook_parser import cell_payload, parse_notebook
+from apps.learning.models import Cell, Chapter, Course, Lesson
 
 
 class Command(BaseCommand):
-    help = 'Load Jupyter notebook data from Classlib directory into the database'
+    help = 'Load Jupyter notebook data from ClassLib directory into the database'
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--notebook',
             type=str,
             default='第一课_基本数据结构.ipynb',
-            help='Notebook filename in Classlib directory'
+            help='Notebook filename in ClassLib directory'
         )
         parser.add_argument(
             '--instructor',
@@ -26,36 +34,26 @@ class Command(BaseCommand):
             default='admin',
             help='Username of the instructor (default: admin)'
         )
+        parser.add_argument(
+            '--password',
+            type=str,
+            default='',
+            help='Password for a newly created instructor (default: random, printed once)'
+        )
 
     def handle(self, *args, **options):
         notebook_file = options['notebook']
-        instructor_username = options['instructor']
-
-        # Get or create instructor user
-        instructor, created = User.objects.get_or_create(
-            username=instructor_username,
-            defaults={
-                'email': f'{instructor_username}@example.com',
-                'user_type': 'instructor',
-                'is_staff': True,
-            }
-        )
-        if created:
-            instructor.set_password('admin123')
-            instructor.save()
-            self.stdout.write(self.style.SUCCESS(f'Created instructor: {instructor_username}'))
+        instructor = self._get_or_create_instructor(options)
 
         # Path to notebook
-        notebook_path = os.path.join(settings.BASE_DIR, 'Classlib', notebook_file)
+        notebook_path = os.path.join(settings.BASE_DIR, 'ClassLib', notebook_file)
 
         if not os.path.exists(notebook_path):
             self.stdout.write(self.style.ERROR(f'Notebook not found: {notebook_path}'))
             return
 
-        # Load notebook
         self.stdout.write(f'Loading notebook: {notebook_file}')
-        with open(notebook_path, 'r', encoding='utf-8') as f:
-            notebook_data = json.load(f)
+        doc = parse_notebook(notebook_path)
 
         # Parse notebook metadata to extract course info
         # For this example, we'll use the filename and first cell content
@@ -110,51 +108,15 @@ class Command(BaseCommand):
 
         # Parse and create cells
         cells_created = 0
-        for idx, cell_data in enumerate(notebook_data.get('cells', [])):
-            cell_type = cell_data.get('cell_type', 'markdown')
-            source = cell_data.get('source', [])
-
-            # Join source lines if it's a list
-            if isinstance(source, list):
-                source_text = ''.join(source)
-            else:
-                source_text = source
-
-            # Skip empty cells
-            if not source_text.strip():
+        for order, item in enumerate(doc.cells):
+            payload = cell_payload(item)
+            if payload is None:
                 continue
-
-            # Map Jupyter cell types to our cell types
-            if cell_type == 'markdown':
-                our_cell_type = 'text'
-                cell_content = {
-                    'markdown': source_text,
-                }
-            elif cell_type == 'code':
-                our_cell_type = 'code'
-                # Get output if available
-                outputs = cell_data.get('outputs', [])
-                output_text = self._extract_output(outputs)
-
-                cell_content = {
-                    'source': source_text,
-                    'output': output_text,
-                    'language': 'python',
-                    'status': 'success' if output_text else 'pending',
-                }
-            else:
-                # Unknown cell type, treat as text
-                our_cell_type = 'text'
-                cell_content = {
-                    'markdown': source_text,
-                }
-
-            # Create cell
             Cell.objects.create(
                 lesson=lesson,
-                cell_type=our_cell_type,
-                order=idx,
-                data=cell_content,
+                cell_type=payload['cell_type'],
+                order=order,
+                data=payload['data'],
                 created_by=instructor,
             )
             cells_created += 1
@@ -169,27 +131,24 @@ class Command(BaseCommand):
             f'\nCells: {cells_created}'
         ))
 
-    def _extract_output(self, outputs):
-        """Extract text output from notebook cell outputs."""
-        if not outputs:
-            return ''
+    def _get_or_create_instructor(self, options):
+        """Get the instructor, or create one with an explicit/random password
+        — never a hardcoded one."""
+        username = options['instructor']
+        user = User.objects.filter(username=username).first()
+        if user:
+            return user
 
-        output_parts = []
-        for output in outputs:
-            if 'text' in output:
-                text = output['text']
-                if isinstance(text, list):
-                    output_parts.append(''.join(text))
-                else:
-                    output_parts.append(text)
-            elif 'data' in output:
-                # Handle data outputs (e.g., text/plain)
-                data = output['data']
-                if 'text/plain' in data:
-                    text = data['text/plain']
-                    if isinstance(text, list):
-                        output_parts.append(''.join(text))
-                    else:
-                        output_parts.append(text)
-
-        return '\n'.join(output_parts)
+        password = options['password'] or secrets.token_urlsafe(12)
+        user = User.objects.create_user(
+            username=username,
+            email=f'{username}@example.com',
+            password=password,
+            user_type='instructor',
+            is_staff=True,
+        )
+        self.stdout.write(self.style.WARNING(
+            f'Created instructor "{username}" with generated password: {password} '
+            f'(keep it safe and change it soon)'
+        ))
+        return user
