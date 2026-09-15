@@ -9,6 +9,7 @@ from django.contrib import messages
 import json
 
 from .models import Exercise, Hint, Submission, HintUsage
+from apps.accounts.models import StudentProfile
 
 
 class ExerciseListView(ListView):
@@ -151,11 +152,13 @@ def view_hint(request, hint_id):
     )
 
     if created:
-        # Deduct points from student profile
+        # Deduct points from student profile (atomic F() update, floored at 0)
         if hasattr(request.user, 'student_profile'):
-            profile = request.user.student_profile
-            profile.total_points = max(0, profile.total_points - hint.points_penalty)
-            profile.save()
+            from django.db.models import F
+            from django.db.models.functions import Greatest
+            StudentProfile.objects.filter(pk=request.user.student_profile.pk).update(
+                total_points=Greatest(F('total_points') - hint.points_penalty, 0)
+            )
 
         return JsonResponse({
             'success': True,
@@ -181,7 +184,7 @@ def submission_history(request, slug):
     submissions = Submission.objects.filter(
         exercise=exercise,
         student=request.user
-    ).order_by('-submitted_at')
+    ).select_related('exercise').order_by('-submitted_at')
 
     context = {
         'exercise': exercise,

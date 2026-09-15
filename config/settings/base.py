@@ -138,7 +138,7 @@ AUTH_USER_MODEL = "accounts.User"
 
 # Authentication URLs
 LOGIN_URL = "/accounts/login/"
-LOGIN_REDIRECT_URL = "/dashboard/"
+LOGIN_REDIRECT_URL = "/accounts/dashboard/"
 LOGOUT_REDIRECT_URL = "/"
 
 # REST Framework settings

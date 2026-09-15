@@ -4,8 +4,20 @@ Django settings for teaching_space project - Production settings.
 
 from .base import *
 
+from django.core.exceptions import ImproperlyConfigured
+
 # Production settings
 DEBUG = False
+
+# Never run production with a placeholder SECRET_KEY
+if SECRET_KEY in ('', 'your-secret-key-here-change-in-production'):
+    raise ImproperlyConfigured(
+        'SECRET_KEY must be set to a real value for production (check .env)'
+    )
+
+# Create the log directory so the RotatingFileHandler can write on first use
+LOG_DIR = BASE_DIR / 'logs'
+LOG_DIR.mkdir(exist_ok=True)
 
 # Security settings
 SECURE_SSL_REDIRECT = True
@@ -93,5 +105,5 @@ if config('SENTRY_DSN', default=''):
         dsn=config('SENTRY_DSN'),
         integrations=[DjangoIntegration()],
         traces_sample_rate=0.1,
-        send_default_pii=True,
+        send_default_pii=False,
     )

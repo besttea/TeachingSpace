@@ -1,12 +1,13 @@
 import os
 import json
 import django
+
+# Setup Django environment when running standalone
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.development')
+django.setup()
+
 from django.conf import settings
 from unittest.mock import MagicMock, patch
-
-# Setup Django environment if running standalone (though we'll use manage.py shell)
-# os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.base')
-# django.setup()
 
 from apps.learning.models import Course, Lesson, Cell
 from apps.learning.cell_handlers import get_handler

@@ -328,6 +328,16 @@ Celery（无 celery.py 应用、无 tasks.py、无 `.delay()`）、DRF（零 ser
 
 ## 进度记录
 
+- **2026-09-16**：完成剩余 P1 主体 + 多项 P2
+  - ✅ **P1-4 已修复**：训练积分防刷——同一 (student, exercise) 首次通过才加分/计完成数，重复提交只更新记录不重复奖励；判分/统计更新走 `transaction.atomic` + `select_for_update` + `F()` 表达式（并发不丢计数）；提示扣分统一按实际 `points_penalty` 累加（不再硬编码 ×2）；`view_hint` 扣分改原子 `F()` + `Greatest(...,0)` 防负分
+  - ✅ **P1-7 已修复**：wsgi/asgi 指向 `config.settings.production`；production 强制校验 SECRET_KEY（占位符直接报错）；自动创建 `logs/` 目录；Sentry `send_default_pii=False`；`LOGIN_REDIRECT_URL` 修正为 `/accounts/dashboard/`；development 移除 `'*'` ALLOWED_HOSTS 与死 CORS 配置；`.env.example` 补充 `ANTHROPIC_BASE_URL`
+  - ✅ **P1-8 部分修复**（Agent 仍未接线，但基础设施就绪）：`BaseAgent` 尊重 `ANTHROPIC_API_BASE_URL`（代理端点不再鉴权失败）、`temperature=0`/`max_tokens=0` 不再被 `or` 吞掉、`generate_json` 用正则提取首个 `{...}` 块（前言/围栏不再解析失败）、APIError 不再包装成裸 Exception
+  - ✅ **P1-9 已修复**：`course_detail` 模板 O(L²) 行扫描 → 视图预计算 `chapters_data`（章节→课程单元→进度标志），配合 prefetch 一次加载；模板重写为遍历预计算结构
+  - ✅ **P2-5 已修复**：Course/Exercise slug 空值兜底 + 同名自动加序号；Lesson slug 空值兜底（中文标题不再 500）
+  - ✅ **P2-6 已修复**：`Lesson.get_previous()/get_next()` 实现（上一课/下一课导航恢复）、`LessonProgress.completion_percentage` 属性（进度条恢复，按已执行代码单元格占比）、`CourseDetailView` 传入 `can_edit`（编辑按钮恢复）
+  - ✅ **P2-7 部分修复**：考试列表 attempt 计数改单次聚合；答题页/成绩页 `get_specific_question` 四个 OneToOne 全部 prefetch；训练提交历史补 `select_related('exercise')`；`Enrollment.completed_at` 在 100% 完成时自动设置；`track_cell_execution` 改 `select_for_update` 原子读改写
+  - ✅ 修复 `verify_features.py`（补上 `django.setup()`，可直接运行）
+  - ✅ **回归测试**：新增 6 个（防刷 2、slug/导航/进度 4），共 **45 个测试全部通过**；课程详情/考试列表页冒烟渲染正常
 - **2026-09-16**：完成第 1 阶段（安全止血）+ 第 2 阶段（核心功能修复）主体
   - ✅ **P0-1/2 已修复**：执行器整体重写为 subprocess 隔离（`python -I` 子进程）+ 强制超时（kill）+ 严格 builtins 白名单（无 `__import__`/`open`/`eval`/`type`/`getattr`，白名单导入 math/random 等）+ AST 禁止下划线属性访问（封堵 `().__class__.__mro__` 类 gadget 链）；预留 RestrictedPython 可选加固层（装上即自动生效）。已验证：import os 被拒、gadget 链被拒、open 被拒、死循环 3 秒被杀、双测试模式正常。**遗留限制**：子进程仍是同一 OS 用户（Docker 为终态）
   - ✅ **P0-3 已修复**：`cells_json|safe` → `json_script`；新增 `escapejs_tick` 过滤器（转义反引号与 `${`）；marked 输出过 DOMPurify（cdnjs 3.1.6）；无 marked 时回退为纯文本转义（不再返回原始 markdown）；聊天界面 `innerHTML` 前统一 `escapeHtml()`（用户消息、AI 回复、推荐资源字段）

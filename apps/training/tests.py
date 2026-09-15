@@ -4,7 +4,7 @@ real result keys and only pass when all tests actually pass."""
 from django.test import TestCase
 
 from apps.accounts.models import StudentProfile, User
-from .models import Exercise, Submission
+from .models import Exercise, Hint, HintUsage, Submission
 
 
 class SubmissionGradingTests(TestCase):
@@ -47,3 +47,26 @@ class SubmissionGradingTests(TestCase):
         submission = self._submit('name = input()\nprint("Hello, " + name + "!")')
         self.assertEqual(submission.status, 'passed')
         self.assertGreaterEqual(submission.test_results and len(submission.test_results), 2)
+
+    def test_no_double_points_on_resubmission(self):
+        """P1-4: re-passing an exercise must not re-award profile points."""
+        first = self._submit('name = input()\nprint("Hello, " + name + "!")')
+        self.assertEqual(first.points_awarded, 10)
+
+        second = self._submit('name = input()\nprint("Hello, " + name + "!")')
+        self.assertEqual(second.status, 'passed')
+        self.assertEqual(second.points_awarded, 0)
+
+        profile = StudentProfile.objects.get(user=self.student)
+        self.assertEqual(profile.total_points, 10)
+        self.assertEqual(profile.total_exercises_completed, 1)
+
+    def test_hint_penalty_uses_actual_penalties(self):
+        """P1-4: hint deduction must match the hint's real points_penalty."""
+        hint = Hint.objects.create(
+            exercise=self.exercise, content='try input()', order=0, points_penalty=5)
+        HintUsage.objects.create(student=self.student, hint=hint)
+
+        submission = self._submit('name = input()\nprint("Hello, " + name + "!")')
+        self.assertEqual(submission.status, 'passed')
+        self.assertEqual(submission.points_awarded, 5)  # 10 - 5, not 10 - 2

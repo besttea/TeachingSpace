@@ -80,40 +80,35 @@
                 <i class="bi bi-list-nested"></i> Course Content
             </h2>
 
-            {% for chapter in course.chapters.all %}
+            {% for item in chapters_data %}
             <div class="card mb-3">
                 <div class="card-header bg-light">
                     <h4 class="mb-0">
                         <button class="btn btn-link text-decoration-none text-dark w-100 text-start"
                                 type="button"
                                 data-bs-toggle="collapse"
-                                data-bs-target="#chapter-{{ chapter.id }}">
-                            <i class="bi bi-chevron-down"></i> Chapter {{ chapter.order }}: {{ chapter.title }}
-                            <span class="badge bg-secondary float-end">{{ chapter.lessons.count }} lessons</span>
+                                data-bs-target="#chapter-{{ item.chapter.id }}">
+                            <i class="bi bi-chevron-down"></i> Chapter {{ item.chapter.order }}: {{ item.chapter.title }}
+                            <span class="badge bg-secondary float-end">{{ item.lessons|length }} lessons</span>
                         </button>
                     </h4>
                 </div>
-                <div id="chapter-{{ chapter.id }}" class="collapse {% if forloop.first %}show{% endif %}">
+                <div id="chapter-{{ item.chapter.id }}" class="collapse {% if forloop.first %}show{% endif %}">
                     <div class="card-body">
-                        {% if chapter.description %}
-                        <p class="text-muted">{{ chapter.description }}</p>
+                        {% if item.chapter.description %}
+                        <p class="text-muted">{{ item.chapter.description }}</p>
                         {% endif %}
 
                         <ul class="list-group list-group-flush">
-                            {% for lesson in chapter.lessons.all %}
+                            {% for lesson_item in item.lessons %}
+                            {% with lesson=lesson_item.lesson %}
                             <li class="list-group-item d-flex justify-content-between align-items-center">
                                 <div>
                                     <i class="bi bi-file-earmark-text"></i>
                                     <strong>{{ lesson.order }}.</strong> {{ lesson.title }}
 
-                                    {% if enrollment %}
-                                        {% with lesson_progress=enrollment.lesson_progress.all|dictsort:"lesson__order" %}
-                                        {% for progress in lesson_progress %}
-                                            {% if progress.lesson.id == lesson.id and progress.is_completed %}
-                                            <i class="bi bi-check-circle-fill text-success ms-2"></i>
-                                            {% endif %}
-                                        {% endfor %}
-                                        {% endwith %}
+                                    {% if lesson_item.is_completed %}
+                                    <i class="bi bi-check-circle-fill text-success ms-2"></i>
                                     {% endif %}
 
                                     <br>
@@ -140,6 +135,7 @@
                                     {% endif %}
                                 </div>
                             </li>
+                            {% endwith %}
                             {% empty %}
                             <li class="list-group-item text-muted">
                                 <i class="bi bi-info-circle"></i> No lessons in this chapter yet.

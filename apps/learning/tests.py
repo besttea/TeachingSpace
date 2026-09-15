@@ -6,8 +6,8 @@ import json
 from django.test import TestCase
 from django.urls import reverse
 
-from apps.accounts.models import User
-from .models import Cell, Chapter, Course, Lesson
+from apps.accounts.models import StudentProfile, User
+from .models import Cell, Chapter, Course, Enrollment, Lesson, LessonProgress
 
 
 class CellOrderingTests(TestCase):
@@ -98,6 +98,59 @@ class CellOrderingTests(TestCase):
             content_type='application/json',
         )
         self.assertEqual(response.status_code, 400)
+
+
+class SlugNavigationAndProgressTests(TestCase):
+    """P2-5 slug collisions, P2-6 dead template refs, P2-7 completed_at."""
+
+    def setUp(self):
+        self.instructor = User.objects.create_user(
+            username='teacher3', email='t3@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.student = User.objects.create_user(
+            username='student3', email='s3@example.com',
+            password='StrongPass123!', user_type='student')
+
+    def test_chinese_titles_get_unique_slugs(self):
+        c1 = Course.objects.create(title='中文课程', description='x', instructor=self.instructor)
+        c2 = Course.objects.create(title='中文课程', description='x', instructor=self.instructor)
+        self.assertTrue(c1.slug and c2.slug)
+        self.assertNotEqual(c1.slug, c2.slug)
+
+    def test_lesson_prev_next_navigation(self):
+        course = Course.objects.create(title='Nav', description='x', instructor=self.instructor)
+        chapter = Chapter.objects.create(course=course, title='Ch', order=0)
+        lessons = [
+            Lesson.objects.create(chapter=chapter, title=f'L{i}', status='published', order=i)
+            for i in range(3)
+        ]
+        self.assertIsNone(lessons[0].get_previous())
+        self.assertEqual(lessons[0].get_next(), lessons[1])
+        self.assertEqual(lessons[1].get_previous(), lessons[0])
+        self.assertEqual(lessons[1].get_next(), lessons[2])
+        self.assertIsNone(lessons[2].get_next())
+
+    def test_completion_percentage(self):
+        course = Course.objects.create(title='Pct', description='x', instructor=self.instructor)
+        chapter = Chapter.objects.create(course=course, title='Ch', order=0)
+        lesson = Lesson.objects.create(chapter=chapter, title='L', status='published', order=0)
+        Cell.objects.create(lesson=lesson, cell_type='code', order=0, data={'source': 'x'})
+        enrollment = Enrollment.objects.create(student=self.student, course=course)
+        progress = LessonProgress.objects.create(enrollment=enrollment, lesson=lesson)
+        self.assertEqual(progress.completion_percentage, 0)
+        progress.mark_complete()
+        self.assertEqual(progress.completion_percentage, 100)
+
+    def test_enrollment_completed_at_set_on_100_percent(self):
+        course = Course.objects.create(title='Done', description='x', instructor=self.instructor)
+        chapter = Chapter.objects.create(course=course, title='Ch', order=0)
+        lesson = Lesson.objects.create(chapter=chapter, title='L', status='published', order=0)
+        enrollment = Enrollment.objects.create(student=self.student, course=course)
+        progress = LessonProgress.objects.create(enrollment=enrollment, lesson=lesson)
+        progress.mark_complete()
+        enrollment.refresh_from_db()
+        self.assertIsNotNone(enrollment.completed_at)
+        self.assertEqual(enrollment.progress_percentage, 100)
 
 
 class ExecuteCellPermissionTests(TestCase):

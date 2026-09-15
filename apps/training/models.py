@@ -45,7 +45,13 @@ class Exercise(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(self.title)
+            base = slugify(self.title) or 'untitled'
+            self.slug = base
+            # Disambiguate duplicate slugs (Chinese titles slugify to "").
+            counter = 2
+            while type(self).objects.filter(slug=self.slug).exists():
+                self.slug = f'{base}-{counter}'
+                counter += 1
         super().save(*args, **kwargs)
 
     @property
@@ -117,49 +123,74 @@ class Submission(models.Model):
         return f"{self.student.username} - {self.exercise.title} ({self.status})"
 
     def grade(self):
-        """Execute and grade the submission"""
+        """Execute and grade the submission.
+
+        Points are awarded only once per (student, exercise): after a first
+        passing submission, later ones update their own record but never
+        re-credit the profile or exercise stats (no points farming).
+        Hint penalties come from the actual viewed hints (consistent with
+        ``view_hint``), not a hardcoded per-hint value.
+        """
+        from django.db import transaction
+        from django.db.models import F, Sum
+
+        from apps.accounts.models import StudentProfile
         from apps.code_runner.executor import CodeExecutor
 
         self.status = 'running'
         self.save()
 
         try:
-            executor = CodeExecutor()
-            result = executor.execute_with_tests(
-                code=self.code,
-                test_cases=self.exercise.test_cases,
-                timeout=self.exercise.time_limit_seconds or 10
-            )
+            with transaction.atomic():
+                # Lock the exercise row so concurrent submissions can't
+                # double-increment the counters.
+                exercise = Exercise.objects.select_for_update().get(pk=self.exercise_id)
+                profile = StudentProfile.objects.select_for_update().filter(
+                    user=self.student).first()
 
-            # Update submission with results
-            self.test_results = result.get('test_results', [])
-            self.output = result.get('output', '')
-            self.tests_passed = result.get('passed_tests', 0)
-            self.tests_total = result.get('total_tests', 0)
-            self.execution_time_ms = result.get('execution_time', 0)
+                executor = CodeExecutor()
+                result = executor.execute_with_tests(
+                    code=self.code,
+                    test_cases=exercise.test_cases,
+                    timeout=exercise.time_limit_seconds or 10
+                )
 
-            # Determine status (guard against empty test suites: 0/0 is not a pass)
-            if self.tests_total > 0 and self.tests_passed == self.tests_total:
-                self.status = 'passed'
-                # Calculate points (base points minus hint penalties)
-                self.points_awarded = max(0, self.exercise.points - (self.hints_used * 2))
+                # Update submission with results
+                self.test_results = result.get('test_results', [])
+                self.output = result.get('output', '')
+                self.tests_passed = result.get('passed_tests', 0)
+                self.tests_total = result.get('total_tests', 0)
+                self.execution_time_ms = result.get('execution_time', 0)
 
-                # Update exercise statistics
-                self.exercise.successful_submissions += 1
-                self.exercise.save()
+                # Determine status (guard against empty test suites: 0/0 is not a pass)
+                if self.tests_total > 0 and self.tests_passed == self.tests_total:
+                    self.status = 'passed'
 
-                # Update student profile
-                profile = self.student.student_profile
-                profile.total_points += self.points_awarded
-                profile.total_exercises_completed += 1
-                profile.save()
-            else:
-                self.status = 'failed'
-                self.points_awarded = 0
+                    # Sum the actual penalties of hints already viewed for
+                    # this exercise (matches view_hint's deduction logic).
+                    hint_penalty = HintUsage.objects.filter(
+                        student=self.student, hint__exercise=exercise
+                    ).aggregate(total=Sum('hint__points_penalty'))['total'] or 0
+                    self.points_awarded = max(0, exercise.points - hint_penalty)
 
-            # Update exercise total submissions
-            self.exercise.total_submissions += 1
-            self.exercise.save()
+                    # Award points/stats only on the FIRST passing submission.
+                    already_passed = Submission.objects.filter(
+                        student=self.student, exercise=exercise, status='passed'
+                    ).exclude(pk=self.pk).exists()
+                    if already_passed:
+                        self.points_awarded = 0
+                    else:
+                        exercise.successful_submissions = F('successful_submissions') + 1
+                        if profile is not None:
+                            profile.total_points = F('total_points') + self.points_awarded
+                            profile.total_exercises_completed = F('total_exercises_completed') + 1
+                            profile.save()
+                else:
+                    self.status = 'failed'
+                    self.points_awarded = 0
+
+                exercise.total_submissions = F('total_submissions') + 1
+                exercise.save()
 
         except TimeoutError:
             self.status = 'timeout'

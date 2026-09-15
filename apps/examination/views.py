@@ -32,13 +32,17 @@ class ExamListView(LoginRequiredMixin, ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        # Add attempt counts for each exam
+        # One grouped query for attempt counts instead of one per exam
         if self.request.user.is_authenticated:
-            for exam in context['exams']:
-                exam.user_attempts = StudentExam.objects.filter(
-                    exam=exam,
-                    student=self.request.user
-                ).count()
+            exams = context['exams']
+            attempt_counts = {
+                row['exam_id']: row['total']
+                for row in StudentExam.objects.filter(
+                    exam__in=exams, student=self.request.user
+                ).values('exam_id').annotate(total=Count('id'))
+            }
+            for exam in exams:
+                exam.user_attempts = attempt_counts.get(exam.id, 0)
                 exam.can_attempt = exam.user_attempts < exam.max_attempts
         return context
 
@@ -145,8 +149,14 @@ class TakeExamView(LoginRequiredMixin, TemplateView):
         if student_exam.is_submitted:
             return redirect('examination:exam-results', attempt_id=student_exam.id)
 
-        # Get questions (randomized if needed)
-        questions = list(student_exam.exam.questions.all())
+        # Get questions (randomized if needed). Prefetch the four specific
+        # OneToOne question types so get_specific_question() is free.
+        questions = list(
+            student_exam.exam.questions.all().prefetch_related(
+                'multiplechoicequestion', 'codequestion',
+                'essayquestion', 'truefalsequestion'
+            )
+        )
 
         if student_exam.exam.randomize_questions:
             # Use a per-attempt RNG instance — never seed the process-global
@@ -365,7 +375,10 @@ class ExamResultsView(LoginRequiredMixin, DetailView):
         # Get all answers with question details
         answers = ExamAnswer.objects.filter(
             student_exam=student_exam
-        ).select_related('question').order_by('question__order')
+        ).select_related('question').prefetch_related(
+            'question__multiplechoicequestion', 'question__codequestion',
+            'question__essayquestion', 'question__truefalsequestion'
+        ).order_by('question__order')
 
         answers_data = []
         for answer in answers:

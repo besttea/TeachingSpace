@@ -32,7 +32,14 @@ class Course(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(self.title)
+            base = slugify(self.title) or 'untitled'
+            self.slug = base
+            # Disambiguate duplicate slugs (e.g. two courses with the same
+            # title, or Chinese titles whose slugify() result is empty).
+            counter = 2
+            while type(self).objects.filter(slug=self.slug).exists():
+                self.slug = f'{base}-{counter}'
+                counter += 1
         super().save(*args, **kwargs)
 
 
@@ -83,8 +90,23 @@ class Lesson(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(self.title)
+            # slugify("中文标题") yields "" — fall back so URLs stay usable
+            self.slug = slugify(self.title) or 'untitled'
         super().save(*args, **kwargs)
+
+    def get_previous(self):
+        """Previous lesson in the same chapter (for prev/next navigation)."""
+        return (
+            Lesson.objects.filter(chapter=self.chapter, order__lt=self.order)
+            .order_by('-order').first()
+        )
+
+    def get_next(self):
+        """Next lesson in the same chapter."""
+        return (
+            Lesson.objects.filter(chapter=self.chapter, order__gt=self.order)
+            .order_by('order').first()
+        )
 
 
 class Cell(models.Model):
@@ -246,6 +268,10 @@ class Enrollment(models.Model):
         ).count()
 
         self.progress_percentage = (completed_lessons / total_lessons) * 100
+        if self.progress_percentage >= 100 and self.completed_at is None:
+            self.completed_at = timezone.now()
+        elif self.progress_percentage < 100 and self.completed_at is not None:
+            self.completed_at = None
         self.save()
 
         return self.progress_percentage
@@ -273,6 +299,20 @@ class LessonProgress(models.Model):
     def __str__(self):
         return f"{self.enrollment.student.username} - {self.lesson.title}"
 
+    @property
+    def completion_percentage(self):
+        """Lesson progress for the progress bar (0-100).
+
+        Based on executed code cells vs the lesson's code cells; 100 once
+        marked complete.
+        """
+        if self.is_completed:
+            return 100
+        total_code = self.lesson.cells.filter(cell_type='code').count()
+        if not total_code:
+            return 0
+        return min(100, int(len(self.code_cells_run or []) / total_code * 100))
+
     def mark_complete(self):
         """Mark lesson as completed"""
         if not self.is_completed:
@@ -284,8 +324,14 @@ class LessonProgress(models.Model):
             self.enrollment.calculate_progress()
 
     def track_cell_execution(self, cell_id):
-        """Track that a code cell was executed"""
-        if cell_id not in self.code_cells_run:
-            self.code_cells_run.append(cell_id)
-            self.cells_executed += 1
-            self.save()
+        """Track that a code cell was executed (atomic read-modify-write)"""
+        from django.db import transaction
+
+        with transaction.atomic():
+            progress = type(self).objects.select_for_update().get(pk=self.pk)
+            executed = list(progress.code_cells_run or [])
+            if cell_id not in executed:
+                executed.append(cell_id)
+                progress.code_cells_run = executed
+                progress.cells_executed += 1
+                progress.save()

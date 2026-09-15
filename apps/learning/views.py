@@ -72,19 +72,20 @@ class CourseDetailView(DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        user = self.request.user
 
-        # Check if user is enrolled
-        if self.request.user.is_authenticated:
+        if user.is_authenticated:
+            context['can_edit'] = (user == self.object.instructor or user.is_staff)
             context['is_enrolled'] = Enrollment.objects.filter(
-                student=self.request.user,
+                student=user,
                 course=self.object,
                 is_active=True
             ).exists()
 
-            # Get user's enrollment if exists
+            enrollment = None
             try:
                 enrollment = Enrollment.objects.get(
-                    student=self.request.user,
+                    student=user,
                     course=self.object
                 )
                 context['enrollment'] = enrollment
@@ -92,6 +93,27 @@ class CourseDetailView(DetailView):
                 context['completed_lessons_count'] = enrollment.lesson_progress.filter(is_completed=True).count()
             except Enrollment.DoesNotExist:
                 pass
+
+            # Precomputed chapter → lesson structure with per-lesson progress,
+            # so the template runs in O(chapters + lessons) queries instead of
+            # re-loading all progress rows for every lesson (O(L²)).
+            progress_map = {}
+            if enrollment:
+                progress_map = {
+                    lp.lesson_id: lp for lp in enrollment.lesson_progress.all()
+                }
+            chapters_data = []
+            for chapter in self.object.chapters.all().prefetch_related('lessons'):
+                lessons_data = []
+                for lesson in chapter.lessons.all():
+                    lp = progress_map.get(lesson.id)
+                    lessons_data.append({
+                        'lesson': lesson,
+                        'progress': lp,
+                        'is_completed': lp.is_completed if lp else False,
+                    })
+                chapters_data.append({'chapter': chapter, 'lessons': lessons_data})
+            context['chapters_data'] = chapters_data
 
         return context
 
