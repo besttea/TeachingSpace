@@ -128,6 +128,8 @@ celery -A config worker -l info               # Linux
 
 设置通过 python-decouple 从 `.env` 读取（`--settings=config.settings.development|production`）。
 
+**优先级规则（重要，T31）**：`系统环境变量 > .env 文件 > 默认值`。宿主环境（如 Claude Code harness）可能注入 `AI_MODEL`/`ANTHROPIC_*` 等变量覆盖 `.env`——应用专属设置请用 `AI_ACTIVE_MODEL`（最高优先级，见 5.2），或在启动终端中 `Remove-Item Env:变量名` 清除。修改 `.env` 后必须重启服务才生效。
+
 ### 5.1 核心
 
 | 变量 | 默认 | 说明 |

@@ -99,6 +99,7 @@ class ExerciseDetailView(LoginRequiredMixin, DetailView):
 
         # Get hints (don't reveal content yet)
         hints = self.object.hints.all().order_by('order')
+        context['hints_count'] = hints.count()
         context['hints'] = hints
 
         # Get hints already viewed by user

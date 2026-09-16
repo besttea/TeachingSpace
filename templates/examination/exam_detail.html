@@ -23,7 +23,7 @@
                     <h6>考试信息</h6>
                     <ul class="list-unstyled">
                         <li><i class="bi bi-clock"></i> <strong>考试时长:</strong> {{ exam.duration_minutes }} 分钟</li>
-                        <li><i class="bi bi-question-circle"></i> <strong>题目数量:</strong> {{ exam.questions.count }} 道</li>
+                        <li><i class="bi bi-question-circle"></i> <strong>题目数量:</strong> {{ question_count }} 道</li>
                         <li><i class="bi bi-star"></i> <strong>总分:</strong> {{ total_points }} 分</li>
                         <li><i class="bi bi-trophy"></i> <strong>及格分数:</strong> {{ exam.passing_score }}%</li>
                         <li><i class="bi bi-arrow-repeat"></i> <strong>最大尝试次数:</strong> {{ exam.max_attempts }}</li>

@@ -455,42 +455,11 @@ Evaluate Answer → Calculate Score → Generate Feedback → Save Result
   - Description and topics
   - Difficulty level
 
-### AI Agents App (✅ Partially Implemented)
-- `AIGenerationRequest`: Track content generation requests
-  - Request type (lesson, exercise, question, **video_script**)
-  - Input parameters (topic, difficulty, etc.)
-  - Status (pending, processing, completed, failed)
-  - Associated course/chapter/lesson
-- `AIGenerationHistory`: Audit log of all AI generations
-  - Prompt used
-  - Response received
-  - Token usage
-  - Generation time
-  - Cost tracking
-- `PromptTemplate`: Store and version prompt templates
-  - Template name and category
-  - Template content with variables
-  - Version history
-  - Performance metrics
-- `ContentValidation`: Validation results for AI-generated content
-  - Syntax checks
-  - Test execution results
-  - Quality scores
-  - Manual review status
-- **Video Generation Models**:
-  - `ManimScript`: AI-generated Manim animation scripts
-    - Script content (Python code)
-    - Associated lesson/topic
-    - Validation status
-    - Generation parameters
-  - `VideoRenderJob`: Track video rendering tasks
-    - Manim script reference
-    - Render status (queued, rendering, completed, failed)
-    - Quality level (low/medium/high)
-    - Render time
-    - Output file path
-    - Error logs
-    - Celery task ID
+### AI Agents App (✅ Implemented)
+- `AIGenerationHistory`: Audit log of all AI generations (agent, prompt, response, tokens, cost, duration) — admin-registered read-only view
+- Model routing lives in code, not DB: `AI_PROVIDERS` (providers), `AI_MODEL_ROLES`/`AI_*_MODEL` (harness roles), `AI_FALLBACK_MODELS` (fallback chains)
+- Prompts are module constants in each agent/skill (e.g. `_EXERCISE_CONTRACT` in training_agent.py) — a `PromptTemplate` DB model was considered and deliberately NOT implemented (code-reviewable prompts beat DB-managed ones at this scale)
+- Generation tracking requests (`AIGenerationRequest`) / `ContentValidation` / `ManimScript` / `VideoRenderJob` models are NOT implemented — the harness audit log + sandbox validation cover the same needs (see OPTIMIZATION_PLAN T19)
 
 ## Environment Variables
 

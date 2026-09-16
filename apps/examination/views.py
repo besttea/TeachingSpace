@@ -81,6 +81,7 @@ class ExamDetailView(LoginRequiredMixin, DetailView):
         context['attempt_count'] = attempts.count()
         context['can_attempt'] = context['attempt_count'] < exam.max_attempts
         context['total_points'] = exam.get_total_points()
+        context['question_count'] = exam.questions.count()
 
         # Check if there's an ongoing attempt
         ongoing = StudentExam.objects.filter(
@@ -202,6 +203,7 @@ class TakeExamView(LoginRequiredMixin, TemplateView):
             'exam': student_exam.exam,
             'questions': questions_data,
             'time_remaining': student_exam.remaining_seconds(),
+            'total_points': student_exam.exam.get_total_points(),
         }
 
         return render(request, self.template_name, context)

@@ -22,7 +22,9 @@ urlpatterns = [
     path('examination/', include('apps.examination.urls')),
 ]
 
-# Serve media files in development
+# Serve media/static files in development (production uses WhiteNoise)
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATICFILES_DIRS[0] if settings.STATICFILES_DIRS else None)
+    # T24: serve ALL static dirs, not just the first (was STATICFILES_DIRS[0])
+    for static_dir in settings.STATICFILES_DIRS:
+        urlpatterns += static(settings.STATIC_URL, document_root=static_dir)
