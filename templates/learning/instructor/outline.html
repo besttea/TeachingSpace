@@ -68,11 +68,12 @@
                     </small>
                 </div>
                 <div class="btn-group">
-                    {% if lesson_item.cell_count %}
                     <a href="{% url 'learning:lesson-edit' lesson.pk %}" class="btn btn-sm btn-outline-primary">
                         <i class="bi bi-pencil"></i> 编辑
                     </a>
-                    {% endif %}
+                    <a href="{% url 'learning:lesson-detail' lesson.pk %}" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-eye"></i> 预览
+                    </a>
                     <button class="btn btn-sm btn-{% if lesson_item.cell_count %}outline-warning{% else %}primary{% endif %}"
                             id="gen-btn-{{ lesson.id }}"
                             onclick="generateLesson({{ lesson.id }})">
@@ -134,7 +135,10 @@
             progressText.textContent = `正在生成 ${++done}/${pending.length}…`;
             await generateLesson(parseInt(lessonId));
         }
-        progressText.textContent = '全部生成完毕！可进入课程管理页逐单元编辑与发布。';
+        progressText.innerHTML = '全部生成完毕！' +
+            '<a href="{% url 'learning:instructor-course-manage' course.slug %}" class="btn btn-sm btn-success ms-2">' +
+            '<i class="bi bi-arrow-right"></i> 进入课程管理</a>' +
+            '<span class="ms-2 text-muted">逐单元编辑、发布后学生可见</span>';
         progressBar.classList.remove('alert-warning');
         progressBar.classList.add('alert-success');
     }

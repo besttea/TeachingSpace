@@ -227,6 +227,10 @@
                                     <span class="badge bg-warning">{{ lesson.get_status_display }}</span>
                                     {% endif %}
                                     {% if can_edit %}
+                                    <a href="{% url 'learning:lesson-edit' lesson.pk %}" class="btn btn-sm btn-outline-primary ms-1"
+                                       title="在笔记本编辑器中修改内容">
+                                        <i class="bi bi-pencil"></i> 编辑
+                                    </a>
                                     <button class="btn btn-sm btn-{% if lesson.status == 'published' %}warning{% else %}success{% endif %} ms-1"
                                             onclick="toggleLessonPublish(this, {{ lesson.pk }})">
                                         {% if lesson.status == 'published' %}下线{% else %}发布{% endif %}
@@ -305,13 +309,42 @@
 
 {% if can_edit %}
 <script>
+    // ---- 页面状态保持：刷新后恢复滚动位置与章节展开状态 ----
+    (function () {
+        const savedScroll = sessionStorage.getItem('courseScrollPos');
+        if (savedScroll !== null) {
+            window.scrollTo(0, parseInt(savedScroll, 10) || 0);
+            sessionStorage.removeItem('courseScrollPos');
+        }
+        const savedOpen = sessionStorage.getItem('courseOpenChapters');
+        if (savedOpen) {
+            try {
+                JSON.parse(savedOpen).forEach(function (chapterId) {
+                    const panel = document.getElementById('chapter-' + chapterId);
+                    if (panel) panel.classList.add('show');
+                });
+            } catch (e) { /* ignore corrupted state */ }
+            sessionStorage.removeItem('courseOpenChapters');
+        }
+    })();
+
+    function preserveStateAndReload() {
+        sessionStorage.setItem('courseScrollPos', String(window.scrollY));
+        // 本页唯一的折叠面板是章节手风琴（id 形如 chapter-<id>）
+        const openIds = Array.from(
+            document.querySelectorAll('.collapse.show[id^="chapter-"]')
+        ).map(function (el) { return el.id.replace('chapter-', ''); });
+        sessionStorage.setItem('courseOpenChapters', JSON.stringify(openIds));
+        location.reload();
+    }
+
     function toggleCoursePublish(btn) {
         fetch("{% url 'learning:instructor-course-publish' course.slug %}", {
             method: 'POST',
             headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
             body: JSON.stringify({action: '{{ course.is_published|yesno:"unpublish,publish" }}'})
         }).then(r => r.json()).then(data => {
-            if (data.success) location.reload();
+            if (data.success) preserveStateAndReload();
             else alert(data.error || '操作失败');
         });
     }
@@ -323,7 +356,7 @@
             headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
             body: JSON.stringify({action: action})
         }).then(r => r.json()).then(data => {
-            if (data.success) location.reload();
+            if (data.success) preserveStateAndReload();
             else alert(data.error || '操作失败');
         });
     }
@@ -402,7 +435,7 @@
                         `<i class="bi bi-hourglass-split"></i> ${i + 1}/${newLessons.length}`);
                     await generateLessonDirect(newLessons[i].id, chapterBtn);
                 }
-                location.reload();  // 刷新以显示新单元与状态
+                preserveStateAndReload();  // 刷新以显示新单元与状态（保持位置）
                 return;
             }
 

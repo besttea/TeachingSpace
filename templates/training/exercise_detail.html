@@ -405,6 +405,20 @@ function exerciseEditor() {
 
 {% if can_modify %}
 <script>
+    // 滚动位置保持：刷新后回到原位置
+    (function () {
+        const savedScroll = sessionStorage.getItem('exerciseScrollPos');
+        if (savedScroll !== null) {
+            window.scrollTo(0, parseInt(savedScroll, 10) || 0);
+            sessionStorage.removeItem('exerciseScrollPos');
+        }
+    })();
+
+    function preserveStateAndReload() {
+        sessionStorage.setItem('exerciseScrollPos', String(window.scrollY));
+        location.reload();
+    }
+
     // AI 修改流程（skill 模式：预览 → 确认 → 应用前沙箱验证）
     async function aiModifyFlow() {
         const instruction = prompt(
@@ -452,7 +466,7 @@ function exerciseEditor() {
             const applyData = await applyResponse.json();
             if (applyData.success) {
                 alert(applyData.message || '已保存修改');
-                location.reload();
+                preserveStateAndReload();
             } else {
                 alert('应用失败: ' + (applyData.error || ''));
             }

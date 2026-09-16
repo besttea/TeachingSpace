@@ -61,6 +61,20 @@
 </div>
 
 <script>
+    // 滚动位置保持：刷新后回到原位置
+    (function () {
+        const savedScroll = sessionStorage.getItem('examManageScrollPos');
+        if (savedScroll !== null) {
+            window.scrollTo(0, parseInt(savedScroll, 10) || 0);
+            sessionStorage.removeItem('examManageScrollPos');
+        }
+    })();
+
+    function preserveStateAndReload() {
+        sessionStorage.setItem('examManageScrollPos', String(window.scrollY));
+        location.reload();
+    }
+
     function togglePublish(btn, examId) {
         const action = btn.textContent.trim() === '发布' ? 'publish' : 'unpublish';
         fetch(`/examination/api/${examId}/publish/`, {
@@ -68,7 +82,7 @@
             headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
             body: JSON.stringify({action: action})
         }).then(r => r.json()).then(data => {
-            if (data.success) location.reload();
+            if (data.success) preserveStateAndReload();
             else alert(data.error || '操作失败');
         });
     }
@@ -111,7 +125,7 @@
         const applyData = await applyResp.json();
         if (applyData.success) {
             alert(applyData.message || '已保存修改');
-            location.reload();
+            preserveStateAndReload();
         } else {
             alert('应用失败: ' + (applyData.error || ''));
         }
