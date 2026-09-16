@@ -3,7 +3,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView, DetailView, TemplateView
-from django.http import JsonResponse, Http404, FileResponse
+from django.http import HttpResponse, JsonResponse, Http404, FileResponse
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
 from django.db import transaction
@@ -549,6 +549,35 @@ class ExamReviewView(LoginRequiredMixin, TemplateView):
         context['exam'] = exam
         context['review_items'] = review_items
         return context
+
+    def render_to_response(self, context, **kwargs):
+        """CSV export (?export=csv) — per-attempt score sheet."""
+        if self.request.GET.get('export') == 'csv':
+            import csv
+            import io
+
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow(['用户名', '姓名', '尝试', '题目', '题型',
+                             '得分', '满分', '总分'])
+            for item in context['review_items']:
+                for answer in item['answers']:
+                    writer.writerow([
+                        item['student'].username,
+                        item['student'].get_full_name(),
+                        item['attempt'].attempt_number,
+                        answer.question.question_text[:60],
+                        answer.question.get_question_type_display(),
+                        answer.points_awarded if answer.points_awarded is not None else '',
+                        answer.question.points,
+                        item['attempt'].score if item['attempt'].score is not None else '',
+                    ])
+            response = HttpResponse(
+                '﻿' + buf.getvalue(), content_type='text/csv; charset=utf-8')
+            response['Content-Disposition'] = (
+                f'attachment; filename="exam_{context["exam"].id}_scores.csv"')
+            return response
+        return super().render_to_response(context, **kwargs)
 
 
 @login_required

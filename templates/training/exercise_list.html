@@ -13,6 +13,9 @@
             <p class="lead text-muted">Practice Python programming with hands-on challenges</p>
         </div>
         <div class="col-md-4 text-end">
+            <a href="{% url 'training:leaderboard' %}" class="btn btn-outline-warning me-1">
+                <i class="bi bi-trophy"></i> 排行榜
+            </a>
             {% if can_create %}
             <a href="{% url 'training:exercise-create' %}" class="btn btn-primary">
                 <i class="bi bi-plus-circle"></i> 创建练习

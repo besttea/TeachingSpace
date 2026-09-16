@@ -13,6 +13,17 @@ from apps.learning.models import Course
 from apps.core.rate_limit import rate_limit
 
 
+@login_required
+def leaderboard(request):
+    """Top students by total points (gamification)."""
+    profiles = StudentProfile.objects.select_related('user').filter(
+        user__user_type='student'
+    ).order_by('-total_points', '-total_exercises_completed')[:20]
+    return render(request, 'training/leaderboard.html', {
+        'profiles': profiles,
+    })
+
+
 class ExerciseListView(LoginRequiredMixin, ListView):
     """Display all exercises with filtering"""
     model = Exercise

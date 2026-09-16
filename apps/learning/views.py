@@ -560,6 +560,21 @@ def instructor_lesson_publish(request, pk):
 
 @login_required
 @require_http_methods(["POST"])
+def instructor_course_publish_all(request, slug):
+    """Publish every lesson of an instructor's course at once."""
+    course = get_object_or_404(Course, slug=slug)
+    if not (request.user == course.instructor or request.user.is_staff):
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    updated = Lesson.objects.filter(chapter__course=course).update(status='published')
+    bump_content_version()
+    return JsonResponse({
+        'success': True,
+        'message': f'已发布 {updated} 个课程单元',
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
 def instructor_course_publish(request, slug):
     """Publish/unpublish an instructor's course."""
     course = get_object_or_404(Course, slug=slug)

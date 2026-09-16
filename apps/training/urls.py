@@ -23,4 +23,5 @@ urlpatterns = [
 
     # Progress
     path('my-progress/', views.my_progress, name='my-progress'),
+    path('leaderboard/', views.leaderboard, name='leaderboard'),
 ]

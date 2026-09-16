@@ -86,6 +86,10 @@
                     <i class="bi bi-{{ course.is_published|yesno:'eye-slash,eye' }}"></i>
                     {{ course.is_published|yesno:"下线为草稿,发布课程" }}
                 </button>
+                <button class="btn btn-sm btn-outline-success"
+                        onclick="publishAllLessons()">
+                    <i class="bi bi-check-all"></i> 发布全部课程单元
+                </button>
                 <a href="{% url 'learning:instructor-student-roster' course.slug %}"
                    class="btn btn-sm btn-outline-primary">
                     <i class="bi bi-people"></i> 查看学员进度
@@ -349,6 +353,18 @@
             body: JSON.stringify({action: '{{ course.is_published|yesno:"unpublish,publish" }}'})
         }).then(r => r.json()).then(data => {
             if (data.success) preserveStateAndReload();
+            else alert(data.error || '操作失败');
+        });
+    }
+
+    function publishAllLessons() {
+        if (!confirm('将把本课程的全部课程单元（含草稿）发布给学生，继续？')) return;
+        fetch("{% url 'learning:instructor-course-publish-all' course.slug %}", {
+            method: 'POST',
+            headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        }).then(r => r.json()).then(data => {
+            if (data.success) { alert(data.message); preserveStateAndReload(); }
             else alert(data.error || '操作失败');
         });
     }

@@ -679,3 +679,40 @@ class CourseDesignStatusTests(TestCase):
         status = status_resp.json()['status']
         self.assertEqual(status['status'], 'done')
         self.assertEqual(status['chapter_count'], 1)
+
+
+class PublishAllTests(TestCase):
+    """D: publish every lesson of a course at once."""
+
+    def setUp(self):
+        self.instructor = User.objects.create_user(
+            username='puball_teacher', email='pat@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.course = Course.objects.create(
+            title='PA', description='x', instructor=self.instructor)
+        self.chapter = Chapter.objects.create(course=self.course, title='Ch', order=0)
+        self.lessons = [
+            Lesson.objects.create(chapter=self.chapter, title=f'L{i}',
+                                 status='draft', order=i)
+            for i in range(3)
+        ]
+
+    def test_publish_all(self):
+        self.client.force_login(self.instructor)
+        response = self.client.post(
+            reverse('learning:instructor-course-publish-all', args=[self.course.slug]),
+            data=json.dumps({}), content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('3', response.json()['message'])
+        self.assertEqual(
+            Lesson.objects.filter(chapter__course=self.course, status='published').count(), 3)
+
+    def test_student_forbidden(self):
+        student = User.objects.create_user(
+            username='puball_student', email='pas@example.com',
+            password='StrongPass123!', user_type='student')
+        self.client.force_login(student)
+        response = self.client.post(
+            reverse('learning:instructor-course-publish-all', args=[self.course.slug]),
+            data=json.dumps({}), content_type='application/json')
+        self.assertEqual(response.status_code, 403)

@@ -278,3 +278,24 @@ class ExerciseAIDraftTests(TestCase):
             reverse('training:exercise-ai-draft'),
             data=json.dumps({'topic': ' '}), content_type='application/json')
         self.assertEqual(response.status_code, 400)
+
+
+class LeaderboardTests(TestCase):
+    """C: top-students ranking by points."""
+
+    def setUp(self):
+        self.u1 = User.objects.create_user(
+            username='lb_one', email='l1@example.com',
+            password='StrongPass123!', user_type='student')
+        self.u2 = User.objects.create_user(
+            username='lb_two', email='l2@example.com',
+            password='StrongPass123!', user_type='student')
+        StudentProfile.objects.create(user=self.u1, total_points=100)
+        StudentProfile.objects.create(user=self.u2, total_points=30)
+
+    def test_ordered_by_points(self):
+        self.client.force_login(self.u1)
+        response = self.client.get(reverse('training:leaderboard'))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertLess(content.index('lb_one'), content.index('lb_two'))

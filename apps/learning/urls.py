@@ -21,6 +21,7 @@ urlpatterns = [
     path('instructor/course/<slug:slug>/lesson/create/', views.instructor_lesson_create, name='instructor-lesson-create'),
     path('instructor/course/<slug:slug>/students/', views.StudentRosterView.as_view(), name='instructor-student-roster'),
     path('instructor/course/<slug:slug>/publish/', views.instructor_course_publish, name='instructor-course-publish'),
+    path('instructor/course/<slug:slug>/publish-all/', views.instructor_course_publish_all, name='instructor-course-publish-all'),
     path('instructor/course/<slug:slug>/outline/', views.CourseOutlineView.as_view(), name='instructor-course-outline'),
     path('api/courses/<int:pk>/design-status/', views.course_design_status_view, name='course-design-status'),
     path('api/lessons/<int:pk>/ai-generate/', views.instructor_lesson_generate, name='lesson-ai-generate'),
