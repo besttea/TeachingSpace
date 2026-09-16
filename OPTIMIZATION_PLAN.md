@@ -206,6 +206,9 @@
 
 > 格式：日期 ｜ 冲刺主题 ｜ 完成条目 ｜ 测试数
 
+- 2026-09-17 ｜ 继续优化 ④ ｜ **异步单元生成**（Celery 任务 + 缓存状态 + 前端 3 秒轮询，eager 兼容）；**考试题目手动编辑界面**（四题型表单、代码题沙箱验证、分值变更重算）；课程详情页教师「预览」入口；README 刷新至当前状态；ruff F841 清零 ｜ 144
+- 2026-09-17 ｜ 继续优化 ③ ｜ 创建练习表单 **AI 生成草稿**面板（ExerciseSkill 填表不落库、验证状态展示）；聊天工具循环 ThinkingBlock 兼容（`.id` 崩溃修复） ｜ 138
+
 - 2026-09-17 ｜ 模型路由修复 ｜ 新增 `AI_ACTIVE_MODEL`（应用专属最高优先级模型，免疫宿主 harness 环境变量污染）；planner 角色移除硬编码 reasoner 默认（未配置时随 provider）；`.env` 设 flash 为全角色模型 + flash→chat 回退链；相关 override 测试补 `AI_ACTIVE_MODEL=''` ｜ 117
 - 2026-09-17 ｜ 修复：logger 未定义与成本统计时区边界 ｜ `learning_agent.py` 引用 logger 未定义（单元生成失败时 NameError 掩盖真实错误）→ 补定义 + 静态守护测试；`daily_cost_exceeded` 用 `now().date()`（UTC 日期）与 `__date` 本地时区查询在午夜附近漏计 → 改 `localdate()`；`.env` 配回退链（deepseek-flash→deepseek-chat） ｜ 115
 - 2026-09-16 ｜ AI 落地深化 + P1 安全快赢 ｜ T4 登录限流（5 次/15 分钟锁定）、T3 内核每用户配额（默认 2）、T2 AI 审计 admin（只读）、T1 交卷 flush 防抖保存、T28 开发环境真实随机 SECRET_KEY；课程创建 AI 设计切到 CourseSkill（planner 角色）；Agent 角色标注（大纲/章节规划/结构请求→planner，作文评分→grader） ｜ 114
