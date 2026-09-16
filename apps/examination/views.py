@@ -20,6 +20,7 @@ from .models import (
     MultipleChoiceQuestion, CodeQuestion, EssayQuestion, TrueFalseQuestion
 )
 from apps.code_runner.executor import CodeExecutor
+from apps.core.rate_limit import rate_limit
 
 
 class ExamListView(LoginRequiredMixin, ListView):
@@ -448,6 +449,7 @@ def exam_publish(request, pk):
 
 @login_required
 @require_http_methods(["POST"])
+@rate_limit('question_ai_modify', limit=30, window_seconds=3600)
 def question_ai_modify(request, pk):
     """AI-assisted exam question modification (skill mode).
 
@@ -496,10 +498,17 @@ def question_ai_modify(request, pk):
                 'error': f'修改后参考答案未通过测试用例（{message}）——未保存，请调整指令重试'
             }, status=400)
 
+        points_changed = updated.get('points') is not None and \
+            int(updated.get('points')) != question.points
         apply_question(question, updated)
+        # Point changes affect already-submitted attempts — recompute them
+        if points_changed:
+            from apps.examination.question_ai import recompute_exam_scores
+            recompute_exam_scores(question.exam)
         return JsonResponse({
             'success': True, 'applied': True,
-            'message': f'已保存修改：题目 #{question.id}',
+            'message': f'已保存修改：题目 #{question.id}'
+                        + ('（已重算相关成绩）' if points_changed else ''),
         })
 
     except Exception as e:
@@ -547,6 +556,9 @@ class ExamResultsView(LoginRequiredMixin, DetailView):
             a.points_awarded for a in answers if a.points_awarded is not None
         )
         context['is_passing'] = student_exam.is_passing()
+        # T7: answer keys/explanations are only shown when the exam allows
+        # immediate results (show_results_immediately)
+        context['show_details'] = student_exam.exam.show_results_immediately
 
         # Certificate (if one was generated before)
         try:

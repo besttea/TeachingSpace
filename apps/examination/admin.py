@@ -216,6 +216,12 @@ class ExamAnswerAdmin(admin.ModelAdmin):
         'student_exam__exam__title'
     ]
     readonly_fields = ['student_exam', 'question', 'created_at', 'updated_at']
+
+    def save_model(self, request, obj, form, change):
+        """After manual grading, recompute the attempt's total score (T6)."""
+        super().save_model(request, obj, form, change)
+        from .question_ai import recompute_exam_scores
+        recompute_exam_scores(obj.student_exam.exam)
     fieldsets = (
         ('答案信息', {
             'fields': ('student_exam', 'question', 'answer_data')

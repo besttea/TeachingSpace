@@ -109,18 +109,18 @@
                         {% for key, value in a_data.specific.options.items %}
                         <div class="p-2 mb-1 rounded
                                     {% if key == a_data.answer.answer_data.selected %}bg-light border border-primary{% endif %}
-                                    {% if key == a_data.specific.correct_answer %}border border-success{% endif %}">
+                                    {% if key == a_data.specific.correct_answer and show_details %}border border-success{% endif %}">
                             <strong>{{ key }}.</strong> {{ value }}
                             {% if key == a_data.answer.answer_data.selected %}
                             <span class="badge bg-primary ms-2">您的答案</span>
                             {% endif %}
-                            {% if key == a_data.specific.correct_answer %}
+                            {% if key == a_data.specific.correct_answer and show_details %}
                             <span class="badge bg-success ms-2">正确答案</span>
                             {% endif %}
                         </div>
                         {% endfor %}
                     </div>
-                    {% if a_data.specific.explanation %}
+                    {% if a_data.specific.explanation and show_details %}
                     <div class="alert alert-info mt-3">
                         <strong><i class="bi bi-info-circle"></i> 解析:</strong><br>
                         {{ a_data.specific.explanation }}
@@ -135,13 +135,15 @@
                                 {% if a_data.answer.answer_data.selected == 'true' %}正确{% else %}错误{% endif %}
                             </span>
                         </p>
+                        {% if show_details %}
                         <p><strong>正确答案:</strong>
                             <span class="badge bg-success">
                                 {% if a_data.specific.correct_answer %}正确{% else %}错误{% endif %}
                             </span>
                         </p>
+                        {% endif %}
                     </div>
-                    {% if a_data.specific.explanation %}
+                    {% if a_data.specific.explanation and show_details %}
                     <div class="alert alert-info mt-3">
                         <strong><i class="bi bi-info-circle"></i> 解析:</strong><br>
                         {{ a_data.specific.explanation }}
@@ -160,7 +162,7 @@
                         {{ a_data.answer.feedback|linebreaks }}
                     </div>
                     {% endif %}
-                    {% if a_data.specific.explanation %}
+                    {% if a_data.specific.explanation and show_details %}
                     <div class="alert alert-info mt-3">
                         <strong><i class="bi bi-lightbulb"></i> 解题思路:</strong><br>
                         {{ a_data.specific.explanation|linebreaks }}
@@ -187,7 +189,7 @@
                         <i class="bi bi-clock"></i> 该题需要教师手动评分，请稍后查看
                     </div>
                     {% endif %}
-                    {% if a_data.specific.sample_answer %}
+                    {% if a_data.specific.sample_answer and show_details %}
                     <div class="alert alert-info mt-3">
                         <strong><i class="bi bi-file-text"></i> 参考答案:</strong><br>
                         {{ a_data.specific.sample_answer|linebreaks }}

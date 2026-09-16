@@ -15,6 +15,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 
 from .models import Course, Chapter, Lesson, Cell, CellVersion, Enrollment, LessonProgress
 from .cell_handlers import get_handler
+from apps.core.rate_limit import rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -376,6 +377,7 @@ class CourseOutlineView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
 
 @login_required
 @require_http_methods(["POST"])
+@rate_limit('lesson_ai_generate', limit=30, window_seconds=3600)
 def instructor_lesson_generate(request, pk):
     """AI-generate the cell content of one lesson, grounded in ClassLib
     material when a match exists. Instructor-only."""
@@ -437,6 +439,7 @@ def instructor_lesson_generate(request, pk):
 
 @login_required
 @require_http_methods(["POST"])
+@rate_limit('chapter_ai_plan', limit=30, window_seconds=3600)
 def instructor_chapter_ai_plan(request, pk):
     """AI plans the lessons of one chapter (titles + descriptions), grounded
     in ClassLib material when available. Creates empty draft lessons."""
@@ -912,6 +915,7 @@ def restore_cell_version(request, pk, version_id):
 
 @login_required
 @require_http_methods(["POST"])
+@rate_limit('kernel_execute', limit=60, window_seconds=300)
 def kernel_execute(request, pk):
     """Execute code in the lesson's real Jupyter kernel (persistent state,
     rich outputs). Students must be enrolled; instructors/staff always may."""

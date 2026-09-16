@@ -9,8 +9,8 @@ from django.urls import reverse
 
 from apps.accounts.models import User
 from .models import (
-    Certificate, CodeQuestion, Exam, MultipleChoiceQuestion, Question,
-    StudentExam, TrueFalseQuestion,
+    Certificate, CodeQuestion, Exam, ExamAnswer, MultipleChoiceQuestion,
+    Question, StudentExam, TrueFalseQuestion,
 )
 
 _MEDIA_TMP = tempfile.mkdtemp(prefix='cert_test_')
@@ -186,3 +186,38 @@ class QuestionAIModifyAndValidateTests(TestCase):
         from django.core.management.base import CommandError
         with self.assertRaises(CommandError):
             call_command('validate_exam', id=self.exam.id)
+
+
+class ScoreRecomputeTests(TestCase):
+    """T6: recompute_exam_scores updates submitted attempts after grading changes."""
+
+    def test_recompute_updates_scores(self):
+        from .question_ai import recompute_exam_scores
+
+        instructor = User.objects.create_user(
+            username='recalc_teacher', email='rt@example.com',
+            password='StrongPass123!', user_type='instructor')
+        student = User.objects.create_user(
+            username='recalc_student', email='rs@example.com',
+            password='StrongPass123!', user_type='student')
+        exam = Exam.objects.create(
+            title='重算测试', description='x', duration_minutes=30,
+            passing_score=60, max_attempts=3, is_published=True,
+            created_by=instructor)
+        question = Question.objects.create(
+            exam=exam, question_type='multiple_choice',
+            question_text='Q', points=10, order=0)
+        attempt = StudentExam.objects.create(
+            student=student, exam=exam, attempt_number=1,
+            time_remaining_seconds=100, score=100, is_submitted=True)
+        answer = ExamAnswer.objects.create(
+            student_exam=attempt, question=question,
+            answer_data={'selected': 'A'}, points_awarded=10, is_correct=True)
+
+        # manual regrade: award only 5 points → score must change from 100 to 50
+        answer.points_awarded = 5
+        answer.save()
+        updated = recompute_exam_scores(exam)
+        self.assertEqual(updated, 1)
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.score, 50)

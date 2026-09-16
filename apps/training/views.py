@@ -11,6 +11,7 @@ import json
 from .models import Exercise, Hint, Submission, HintUsage
 from apps.accounts.models import StudentProfile
 from apps.learning.models import Course
+from apps.core.rate_limit import rate_limit
 
 
 class ExerciseListView(LoginRequiredMixin, ListView):
@@ -115,6 +116,7 @@ class ExerciseDetailView(LoginRequiredMixin, DetailView):
 
 @login_required
 @require_http_methods(["POST"])
+@rate_limit('exercise_submit', limit=20, window_seconds=300)
 def submit_solution(request, slug):
     """Submit code solution for grading"""
     exercise = get_object_or_404(Exercise, slug=slug)
@@ -276,6 +278,7 @@ def exercise_create(request):
 
 @login_required
 @require_http_methods(["POST"])
+@rate_limit('exercise_ai_modify', limit=30, window_seconds=3600)
 def exercise_ai_modify(request, pk):
     """AI-assisted exercise modification (skill mode).
 

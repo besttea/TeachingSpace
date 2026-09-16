@@ -1,7 +1,7 @@
 """Regression tests for P0-4 (registration privilege escalation) and
 P0-5 (login open redirect)."""
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
 from .models import User, StudentProfile
@@ -96,3 +96,47 @@ class LoginRateLimitTests(TestCase):
             response = self._post_login('wrong-password')
         # still 4 more failures before lockout (counter was reset)
         self.assertNotContains(response, '尝试次数过多')
+
+
+class RateLimitDecoratorTests(SimpleTestCase):
+    """T5: per-user rate limiting (cache-backed window)."""
+
+    def test_blocks_after_limit(self):
+        from django.core.cache import cache
+        from django.test import RequestFactory
+        from django.http import JsonResponse
+        from apps.core.rate_limit import rate_limit
+
+        cache.clear()
+
+        @rate_limit('test_limit', limit=3, window_seconds=60)
+        def view(request):
+            return JsonResponse({'ok': True})
+
+        factory = RequestFactory()
+        request = factory.post('/x')
+        request.user = mock_user = type('U', (), {'id': 99, 'is_authenticated': True})()
+
+        for _ in range(3):
+            self.assertEqual(view(request).status_code, 200)
+        self.assertEqual(view(request).status_code, 429)
+
+    def test_counts_per_user(self):
+        from django.core.cache import cache
+        from django.test import RequestFactory
+        from django.http import JsonResponse
+        from apps.core.rate_limit import rate_limit
+
+        cache.clear()
+
+        @rate_limit('test_limit2', limit=1, window_seconds=60)
+        def view(request):
+            return JsonResponse({'ok': True})
+
+        factory = RequestFactory()
+        r1 = factory.post('/x')
+        r1.user = type('U', (), {'id': 1, 'is_authenticated': True})()
+        r2 = factory.post('/x')
+        r2.user = type('U', (), {'id': 2, 'is_authenticated': True})()
+        self.assertEqual(view(r1).status_code, 200)
+        self.assertEqual(view(r2).status_code, 200)  # different user, unaffected

@@ -68,6 +68,23 @@ def apply_question(question: Question, updated: dict):
         specific.save()
 
 
+def recompute_exam_scores(exam) -> int:
+    """Recompute score/is_passing for all SUBMITTED attempts of an exam.
+
+    Called after manual grading in admin, or after AI question modification
+    changes point values. Returns the number of attempts recomputed.
+    """
+    attempts = exam.student_attempts.filter(is_submitted=True)
+    updated = 0
+    for attempt in attempts:
+        new_score = attempt.calculate_score()
+        if attempt.score != new_score:
+            attempt.score = new_score
+            attempt.save()
+            updated += 1
+    return updated
+
+
 def validate_code_question(updated: dict):
     """Sandbox-validate an updated code question (solution vs test cases).
 
