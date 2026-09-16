@@ -439,3 +439,45 @@ class AICourseDesignFlowTests(TestCase):
             data=json.dumps({}), content_type='application/json')
         self.assertEqual(response.status_code, 403)
         self.assertFalse(agent_cls.called)
+
+
+
+
+class CellVersionListingTests(TestCase):
+    """T11: version history listing endpoint (UI backend)."""
+
+    def setUp(self):
+        from .models import CellVersion
+
+        self.instructor = User.objects.create_user(
+            username='versions_teacher', email='vt@example.com',
+            password='StrongPass123!', user_type='instructor')
+        course = Course.objects.create(
+            title='V', description='x', instructor=self.instructor)
+        chapter = Chapter.objects.create(course=course, title='Ch', order=0)
+        lesson = Lesson.objects.create(
+            chapter=chapter, title='L', status='published', order=0)
+        self.cell = Cell.objects.create(
+            lesson=lesson, cell_type='text', order=0, data={'markdown': 'x'})
+        CellVersion.objects.create(
+            cell=self.cell,
+            snapshot={'data': {'markdown': 'v1'}, 'order': 0, 'cell_type': 'text'},
+            editor=self.instructor, change_description='v1')
+
+    def test_listing_works_for_instructor(self):
+        self.client.force_login(self.instructor)
+        response = self.client.get(
+            reverse('learning:cell-versions', args=[self.cell.id]))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data['versions']), 1)
+        self.assertEqual(data['versions'][0]['change_description'], 'v1')
+
+    def test_listing_forbidden_for_student(self):
+        student = User.objects.create_user(
+            username='versions_student', email='vs@example.com',
+            password='StrongPass123!', user_type='student')
+        self.client.force_login(student)
+        response = self.client.get(
+            reverse('learning:cell-versions', args=[self.cell.id]))
+        self.assertEqual(response.status_code, 403)

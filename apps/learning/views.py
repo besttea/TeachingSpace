@@ -869,6 +869,28 @@ def reorder_cells(request):
 
 
 @login_required
+@require_http_methods(["GET"])
+def cell_versions(request, pk):
+    """List a cell's version snapshots (instructor-only)."""
+    cell = get_object_or_404(Cell, pk=pk)
+    if not _can_edit_lesson(request.user, cell.lesson):
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    versions = cell.versions.order_by('-created_at')[:20]
+    return JsonResponse({
+        'success': True,
+        'versions': [
+            {
+                'id': v.id,
+                'change_description': v.change_description,
+                'editor': v.editor.username if v.editor else '—',
+                'created_at': v.created_at.strftime('%Y-%m-%d %H:%M'),
+            }
+            for v in versions
+        ],
+    })
+
+
+@login_required
 @require_http_methods(["POST"])
 def restore_cell_version(request, pk, version_id):
     """Restore a cell to a previous CellVersion snapshot (undo).

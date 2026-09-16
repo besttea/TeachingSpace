@@ -265,6 +265,9 @@
                         <button @click="editCell({{ cell.id }})" title="Edit">
                             <i class="bi bi-pencil"></i>
                         </button>
+                        <button onclick="showVersions({{ cell.id }})" title="历史版本">
+                            <i class="bi bi-clock-history"></i>
+                        </button>
                         <button @click="deleteCell({{ cell.id }})" title="Delete" class="text-danger">
                             <i class="bi bi-trash"></i>
                         </button>
@@ -604,5 +607,74 @@ function notebookEditor() {
         }
     }
 }
+</script>
+
+<!-- 单元格版本历史弹层（T11） -->
+<div id="versionModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:2000;">
+    <div style="background:#fff; max-width:480px; margin:10vh auto; border-radius:8px; padding:1rem;">
+        <h5 class="mb-3"><i class="bi bi-clock-history"></i> 单元格历史版本</h5>
+        <div id="versionList" class="list-group mb-3" style="max-height:50vh; overflow-y:auto;"></div>
+        <button class="btn btn-secondary btn-sm" onclick="hideVersions()">关闭</button>
+    </div>
+</div>
+
+<script>
+    let versionsCellId = null;
+
+    async function showVersions(cellId) {
+        versionsCellId = cellId;
+        const list = document.getElementById('versionList');
+        list.innerHTML = '<div class="text-muted">加载中…</div>';
+        document.getElementById('versionModal').style.display = 'block';
+        try {
+            const response = await fetch(`/learning/api/cells/${cellId}/versions/`);
+            const data = await response.json();
+            if (!data.success) { list.innerHTML = '<div class="text-danger">' + (data.error || '加载失败') + '</div>'; return; }
+            if (!data.versions.length) {
+                list.innerHTML = '<div class="text-muted">暂无历史版本（每次保存自动留存快照）</div>';
+                return;
+            }
+            list.innerHTML = '';
+            data.versions.forEach(function (v) {
+                const item = document.createElement('div');
+                item.className = 'list-group-item d-flex justify-content-between align-items-center';
+                item.innerHTML =
+                    '<div><strong>' + escapeHtml(v.change_description || '（无描述）') + '</strong>' +
+                    '<br><small class="text-muted">' + escapeHtml(v.editor) + ' ｜ ' + v.created_at + '</small></div>';
+                const btn = document.createElement('button');
+                btn.className = 'btn btn-sm btn-outline-primary';
+                btn.textContent = '恢复';
+                btn.onclick = function () { restoreVersion(cellId, v.id); };
+                item.appendChild(btn);
+                list.appendChild(item);
+            });
+        } catch (e) {
+            list.innerHTML = '<div class="text-danger">加载失败，请重试</div>';
+        }
+    }
+
+    function hideVersions() {
+        document.getElementById('versionModal').style.display = 'none';
+    }
+
+    async function restoreVersion(cellId, versionId) {
+        if (!confirm('恢复到此版本？当前内容会先自动存档，可再次恢复。')) return;
+        try {
+            const response = await fetch(`/learning/api/cells/${cellId}/versions/${versionId}/restore/`, {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+                body: JSON.stringify({})
+            });
+            const data = await response.json();
+            if (data.success) { hideVersions(); location.reload(); }
+            else alert('恢复失败: ' + (data.error || ''));
+        } catch (e) {
+            alert('恢复失败，请重试。');
+        }
+    }
+
+    function escapeHtml(text) {
+        return String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
 </script>
 {% endblock %}
