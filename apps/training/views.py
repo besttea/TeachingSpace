@@ -1,4 +1,4 @@
-from django.shortcuts import render, get_object_or_404, redirect
+from django.shortcuts import render, get_object_or_404, redirect, reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView, DetailView
@@ -79,12 +79,17 @@ class ExerciseDetailView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
+        # Instructor tools (AI modification)
+        context['can_modify'] = (
+            self.request.user.is_staff or self.request.user.user_type == 'instructor'
+        )
+
         # Get student's previous submissions
         all_submissions = Submission.objects.filter(
             exercise=self.object,
             student=self.request.user
         ).order_by('-submitted_at')
-        
+
         context['submissions'] = all_submissions[:5]
 
         # Get best submission (most recent passed)
@@ -267,6 +272,96 @@ def exercise_create(request):
 
     context = {'courses': Course.objects.filter(is_published=True)}
     return render(request, 'training/exercise_form.html', context)
+
+
+@login_required
+@require_http_methods(["POST"])
+def exercise_ai_modify(request, pk):
+    """AI-assisted exercise modification (skill mode).
+
+    Body: {instruction, apply}. Default: preview only; apply=True validates
+    the updated solution against its test cases in the sandbox before saving.
+    """
+    exercise = get_object_or_404(Exercise, pk=pk)
+    if not (request.user.is_staff or request.user.user_type == 'instructor'):
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+
+    try:
+        data = json.loads(request.body)
+        instruction = (data.get('instruction') or '').strip()
+        apply_changes = bool(data.get('apply'))
+
+        if not instruction:
+            return JsonResponse({'error': '修改指令不能为空'}, status=400)
+
+        from apps.ai_agents.ai_config import is_configured
+        if not is_configured():
+            return JsonResponse({'error': 'AI 服务未配置（缺少 API 密钥）'}, status=400)
+
+        from apps.ai_agents.training_agent import TrainingAgent, validate_exercise
+        agent = TrainingAgent()
+        current = {
+            'title': exercise.title,
+            'description': exercise.description,
+            'starter_code': exercise.starter_code,
+            'solution_code': exercise.solution_code,
+            'test_cases': exercise.test_cases,
+            'hints': [
+                {'order': h.order, 'content': h.content, 'points_penalty': h.points_penalty}
+                for h in exercise.hints.all().order_by('order')
+            ],
+        }
+        updated = agent.modify_exercise(current, instruction)
+        if not isinstance(updated, dict) or not updated.get('title'):
+            return JsonResponse({'error': 'AI 返回的修改结果无效，请重试'}, status=400)
+
+        preview = {
+            'title': updated.get('title'),
+            'description': (updated.get('description') or '')[:300],
+            'test_cases': updated.get('test_cases') or [],
+            'hints_count': len(updated.get('hints') or []),
+        }
+
+        if not apply_changes:
+            return JsonResponse({'success': True, 'applied': False, 'preview': preview})
+
+        # Sandbox validation BEFORE saving (skill-mode hard rule)
+        ok, message, _detail = validate_exercise(
+            updated.get('solution_code', ''),
+            updated.get('test_cases', []))
+        if not ok:
+            return JsonResponse({
+                'success': False,
+                'error': f'修改后参考答案未通过测试用例（{message}）——未保存，请调整指令重试'
+            }, status=400)
+
+        exercise.title = updated.get('title', exercise.title)
+        exercise.description = updated.get('description', exercise.description)
+        exercise.starter_code = updated.get('starter_code', exercise.starter_code)
+        exercise.solution_code = updated.get('solution_code', exercise.solution_code)
+        exercise.test_cases = updated.get('test_cases', exercise.test_cases)
+        exercise.save()
+        exercise.hints.all().delete()
+        for hint in updated.get('hints', []):
+            Hint.objects.create(
+                exercise=exercise, content=hint.get('content', ''),
+                order=hint.get('order', 0),
+                points_penalty=hint.get('points_penalty', 2))
+
+        return JsonResponse({
+            'success': True, 'applied': True,
+            'message': f'已保存修改（测试用例验证：{message}）',
+            'redirect_url': reverse('training:exercise-detail', args=[exercise.slug]),
+        })
+
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception('exercise_ai_modify failed')
+        from django.conf import settings
+        if getattr(settings, 'DEBUG', False):
+            return JsonResponse({'error': str(e)}, status=500)
+        return JsonResponse({'error': '修改失败，请重试'}, status=500)
 
 
 @login_required

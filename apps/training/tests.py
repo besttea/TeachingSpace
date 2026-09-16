@@ -1,7 +1,10 @@
 """Regression tests for P0-8: Submission.grade() must read the executor's
 real result keys and only pass when all tests actually pass."""
 
+import json
+
 from django.test import TestCase
+from django.urls import reverse
 
 from apps.accounts.models import StudentProfile, User
 from .models import Exercise, Hint, HintUsage, Submission
@@ -70,3 +73,84 @@ class SubmissionGradingTests(TestCase):
         submission = self._submit('name = input()\nprint("Hello, " + name + "!")')
         self.assertEqual(submission.status, 'passed')
         self.assertEqual(submission.points_awarded, 5)  # 10 - 5, not 10 - 2
+
+
+class ExerciseAIModifyTests(TestCase):
+    """AI exercise modification endpoint: preview / apply / permissions."""
+
+    def setUp(self):
+        from unittest import mock as _mock
+        self.instructor = User.objects.create_user(
+            username='mod_teacher', email='mt@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.student = User.objects.create_user(
+            username='mod_student', email='ms@example.com',
+            password='StrongPass123!', user_type='student')
+        self.exercise = Exercise.objects.create(
+            title='原始题', description='d', solution_code='def f():\n    return 1',
+            test_cases=[{'input': 'f()', 'expected': 1}])
+
+        patcher = _mock.patch('apps.ai_agents.training_agent.TrainingAgent.modify_exercise')
+        self.mock_modify = patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher2 = _mock.patch('apps.ai_agents.ai_config.is_configured', return_value=True)
+        patcher2.start()
+        self.addCleanup(patcher2.stop)
+
+    def _modify(self, apply):
+        return self.client.post(
+            reverse('training:exercise-ai-modify', args=[self.exercise.id]),
+            data=json.dumps({'instruction': '加边界用例', 'apply': apply}),
+            content_type='application/json')
+
+    def test_preview_only_by_default(self):
+        self.mock_modify.return_value = {
+            'title': '原始题', 'description': 'd',
+            'solution_code': 'def f():\n    return 1',
+            'test_cases': [{'input': 'f()', 'expected': 1}],
+            'hints': [],
+        }
+        self.client.force_login(self.instructor)
+        response = self._modify(apply=False)
+        self.assertEqual(response.status_code, 200, response.content)
+        data = response.json()
+        self.assertTrue(data['success'])
+        self.assertFalse(data['applied'])
+        self.assertIn('preview', data)
+        self.exercise.refresh_from_db()
+        self.assertEqual(self.exercise.test_cases, [{'input': 'f()', 'expected': 1}])
+
+    def test_apply_validates_and_saves(self):
+        self.mock_modify.return_value = {
+            'title': '原始题改', 'description': 'd2',
+            'solution_code': 'def f():\n    return 1',
+            'test_cases': [{'input': 'f()', 'expected': 1},
+                           {'input': 'f()', 'expected': 1}],
+            'hints': [{'order': 1, 'content': 'h', 'points_penalty': 2}],
+        }
+        self.client.force_login(self.instructor)
+        response = self._modify(apply=True)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()['applied'])
+        self.exercise.refresh_from_db()
+        self.assertEqual(self.exercise.title, '原始题改')
+        self.assertEqual(len(self.exercise.test_cases), 2)
+        self.assertEqual(self.exercise.hints.count(), 1)
+
+    def test_apply_rejected_when_solution_fails_tests(self):
+        self.mock_modify.return_value = {
+            'title': 'T', 'description': 'd',
+            'solution_code': 'def f():\n    return 999',
+            'test_cases': [{'input': 'f()', 'expected': 1}],
+            'hints': [],
+        }
+        self.client.force_login(self.instructor)
+        response = self._modify(apply=True)
+        self.assertEqual(response.status_code, 400)
+        self.exercise.refresh_from_db()
+        self.assertEqual(self.exercise.test_cases, [{'input': 'f()', 'expected': 1}])
+
+    def test_student_forbidden(self):
+        self.client.force_login(self.student)
+        response = self._modify(apply=False)
+        self.assertEqual(response.status_code, 403)

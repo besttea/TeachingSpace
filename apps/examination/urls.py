@@ -8,6 +8,7 @@ urlpatterns = [
     path('', views.ExamListView.as_view(), name='exam-list'),
     path('manage/', views.InstructorExamListView.as_view(), name='exam-manage'),
     path('api/<int:pk>/publish/', views.exam_publish, name='exam-publish'),
+    path('api/questions/<int:pk>/ai-modify/', views.question_ai_modify, name='question-ai-modify'),
     path('<int:pk>/', views.ExamDetailView.as_view(), name='exam-detail'),
 
     # Exam taking flow

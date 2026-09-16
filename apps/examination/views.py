@@ -6,7 +6,7 @@ from django.http import JsonResponse, Http404, FileResponse
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
 from django.db import transaction
-from django.db.models import Q, Count
+from django.db.models import Q, Count, Prefetch
 from django.conf import settings
 from django.core.files.base import ContentFile
 import json
@@ -420,6 +420,10 @@ class InstructorExamListView(LoginRequiredMixin, TemplateView):
         exams = Exam.objects.filter(created_by=user).annotate(
             question_count=Count('questions'),
             attempt_count=Count('student_attempts'),
+        ).prefetch_related(
+            Prefetch('questions', queryset=Question.objects.order_by('order').prefetch_related(
+                'multiplechoicequestion', 'codequestion',
+                'essayquestion', 'truefalsequestion'))
         ).order_by('-created_at')
         context['exams'] = exams
         return context
@@ -440,6 +444,69 @@ def exam_publish(request, pk):
         'is_published': exam.is_published,
         'message': '考试已发布' if exam.is_published else '考试已下线为草稿',
     })
+
+
+@login_required
+@require_http_methods(["POST"])
+def question_ai_modify(request, pk):
+    """AI-assisted exam question modification (skill mode).
+
+    Body: {instruction, apply}. Preview by default; apply validates code
+    questions (solution vs test cases in the sandbox) before saving.
+    """
+    question = get_object_or_404(Question, pk=pk)
+    if not (request.user == question.exam.created_by or request.user.is_staff):
+        return JsonResponse({'success': False, 'error': 'Permission denied'}, status=403)
+
+    try:
+        data = json.loads(request.body)
+        instruction = (data.get('instruction') or '').strip()
+        apply_changes = bool(data.get('apply'))
+
+        if not instruction:
+            return JsonResponse({'success': False, 'error': '修改指令不能为空'}, status=400)
+
+        from apps.ai_agents.ai_config import is_configured
+        if not is_configured():
+            return JsonResponse({'success': False, 'error': 'AI 服务未配置（缺少 API 密钥）'}, status=400)
+
+        from apps.ai_agents.examination_agent import ExaminationAgent
+        from apps.examination.question_ai import (
+            apply_question, question_to_dict, validate_code_question)
+
+        updated = ExaminationAgent().modify_question(
+            question_to_dict(question), instruction)
+        if not isinstance(updated, dict) or not updated.get('text'):
+            return JsonResponse({'success': False, 'error': 'AI 返回的修改结果无效，请重试'}, status=400)
+
+        preview = {
+            'text': updated.get('text', '')[:300],
+            'options': updated.get('options'),
+            'correct_answer': updated.get('correct_answer'),
+            'test_cases_count': len(updated.get('test_cases') or []),
+        }
+
+        if not apply_changes:
+            return JsonResponse({'success': True, 'applied': False, 'preview': preview})
+
+        ok, message = validate_code_question(updated)
+        if not ok:
+            return JsonResponse({
+                'success': False,
+                'error': f'修改后参考答案未通过测试用例（{message}）——未保存，请调整指令重试'
+            }, status=400)
+
+        apply_question(question, updated)
+        return JsonResponse({
+            'success': True, 'applied': True,
+            'message': f'已保存修改：题目 #{question.id}',
+        })
+
+    except Exception as e:
+        logger.exception('question_ai_modify failed')
+        if getattr(settings, 'DEBUG', False):
+            return JsonResponse({'success': False, 'error': str(e)}, status=500)
+        return JsonResponse({'success': False, 'error': '修改失败，请重试'}, status=500)
 
 
 class ExamResultsView(LoginRequiredMixin, DetailView):

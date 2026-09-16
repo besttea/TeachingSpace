@@ -200,39 +200,32 @@ celery -A config worker -l info               # Linux
 
 **修改安全策略的唯一入口**是 `sandbox_runner.py`——subprocess 与 Docker 镜像（COPY 该文件）自动同步；改后需重新 `docker build`。
 
-### 6.2 AI 系统（多模型 / 工具调用 / 成本控制）
+### 6.2 AI 系统（Harness / 多模型 / 工具调用 / 成本控制）
 
 ```
-ai_config.py（provider 路由）
-   ├── BaseAgent（基类：客户端/缓存/成本记录/JSON 提取）
-   │     ├── LearningAgent     生成课程单元
-   │     ├── TrainingAgent     生成练习+测试用例+提示
-   │     ├── ExaminationAgent  生成考题 + 作文评分
-   │     └── VideoAgent        生成 Manim 脚本
-   ├── ChatAIService（聊天：Anthropic tool-use 循环，最多 3 轮）
-   │     └── notebook_tools.py（list_notebooks / get_notebook_digest / get_notebook_section）
-   │          —— 工具在服务端执行：文件名白名单、结果截断、噪音单元格剔除
-   └── AIGenerationHistory（审计：prompt/response/tokens/成本）
-         —— 日成本上限 + 响应缓存 在 BaseAgent.generate() 统一执行
+HarnessCore（apps/ai_agents/harness.py —— 所有 AI 调用的唯一通道）
+ ├── 角色→模型路由：planner(推理规划) / worker(内容生成) / grader(评分校验)
+ │     配置：AI_PLANNER_MODEL / AI_WORKER_MODEL / AI_GRADER_MODEL（留空=provider 默认）
+ ├── 每角色回退链：AI_FALLBACK_MODELS（主模型失败自动切换，HarnessError.last_text 供降级）
+ └── 推理模型兼容内置：temperature 拒绝重试 / ThinkingBlock 跳过 /
+     思考耗尽预算重试 / _extract_json 容错 / 每次调用审计入库
+
+Skills 层（apps/ai_agents/skills/ —— AI 落地的生产管道，DB-free、可测）
+ ├── CourseSkill：大纲(planner) → 逐单元两阶段内容(worker) → Markdown 降级
+ ├── ExerciseSkill：生成(worker) → 沙箱验证 → 反馈修复循环(≤2) → 返回验证状态
+ └── ExamSkill：题型分布(planner) → 逐题(worker) → 代码题沙箱验证
+
+BaseAgent（薄适配层，API 不变 + role 参数）
+ ├── LearningAgent（两阶段内容）│ TrainingAgent（生成/修改+验证）
+ ├── ExaminationAgent（生成/修改+作文评分）│ CourseDesignAgent（大纲/章节规划）
+ └── ChatAIService（工具调用循环）+ notebook_tools（素材工具）
 ```
 
 **约定**：
-- 新增 AI 调用一律走 `BaseAgent` 子类或 `ai_config` 的 `api_key()/base_url()/model_name()`，不要直接读 `settings.ANTHROPIC_API_KEY`（该别名仅为兼容保留）。
-- AI 生成的**考题必须草稿发布**（`generate_exam` 默认 `is_published=False`）。
+- **新 AI 能力优先写成 Skill**（管道：生成→验证→落库由调用方执行）；单次调用直接走 `HarnessCore.call(role=...)`，不要裸建 anthropic client。
+- AI 生成的**考题必须草稿发布**；生成/修改的内容以**沙箱验证为准**（`validate_exercise`）。
 - 工具结果内容是不可信数据——只做截断回传，绝不执行。
-
-**推理模型兼容层**（`BaseAgent.generate` 内置，全部自动生效）：
-
-| 故障 | 自动处理 |
-|------|---------|
-| 模型拒绝 `temperature` 参数（如 deepseek-reasoner 400） | 去掉 temperature 重试一次 |
-| 响应含 ThinkingBlock（推理模型思考块，无 `.text`） | 提取文本时跳过思考块 |
-| 有 temperature 时思考耗尽全部输出预算、无文本 | 去掉 temperature 重试一次；仍无文本则抛明确错误（提示换非推理模型） |
-| JSON 响应带 ```json 围栏 / 前言 / 尾随说明（贪婪正则会解析坏） | `_extract_json`：围栏剥离 → 整体 raw_decode → 裸对象序列自动包成数组 → 逐 `{`/`[` 扫描首个完整值 |
-| 模型丢掉外层包装（输出 `{...},{...}` 而非 `{"cells": [...]}`） | 提取为列表后由各 Agent 归一化（`isinstance(result, list)` → 包回对应键） |
-| 内容生成失败但有可用文本 | `_markdown_to_cells`：按 ``` 围栏把 Markdown 切分为单元格降级 |
-
-**长内容生成的推荐模式**：推理模型（deepseek-flash/reasoner）在长提示下易进入思考循环——用**两阶段**（结构请求 → 逐格短请求），见 6.8。`generate_json(..., max_tokens=N)` 支持按阶段控制输出预算。
+- 角色选择：结构/规划用 `planner`，批量内容用 `worker`，评分类用 `grader`——推理模型对长提示不稳定，长内容一律两阶段（见 6.8）。
 
 ### 6.3 Notebook 素材解析
 

@@ -125,6 +125,12 @@
                     <a href="{% url 'training:submission-history' slug=exercise.slug %}" class="btn btn-outline-secondary">
                         <i class="bi bi-clock-history"></i> History
                     </a>
+                    {% if can_modify %}
+                    <button class="btn btn-outline-primary ms-1" id="aiModifyBtn"
+                            onclick="aiModifyFlow()">
+                        <i class="bi bi-stars"></i> AI 修改
+                    </button>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -396,4 +402,67 @@ function exerciseEditor() {
     }
 }
 </script>
+
+{% if can_modify %}
+<script>
+    // AI 修改流程（skill 模式：预览 → 确认 → 应用前沙箱验证）
+    async function aiModifyFlow() {
+        const instruction = prompt(
+            '请输入修改指令（自然语言），例如：\n"增加一个空列表的边界测试用例"\n"把题目难度调整为中级并补充提示"');
+        if (!instruction || !instruction.trim()) return;
+
+        const btn = document.getElementById('aiModifyBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 生成中…';
+
+        try {
+            const response = await fetch(`/training/api/exercises/{{ exercise.id }}/ai-modify/`, {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+                body: JSON.stringify({instruction: instruction.trim(), apply: false})
+            });
+            const data = await response.json();
+
+            if (!data.success) {
+                alert('修改失败: ' + (data.error || '请确认已配置 AI 密钥'));
+                return;
+            }
+
+            const p = data.preview;
+            const summary = [
+                '【修改预览】',
+                '标题: ' + p.title,
+                '描述: ' + (p.description || ''),
+                '测试用例 ' + (p.test_cases || []).length + ' 个:',
+            ].concat((p.test_cases || []).slice(0, 5).map(function (t) {
+                return '  - ' + t.input + ' → ' + t.expected;
+            })).concat([
+                '提示 ' + p.hints_count + ' 条',
+                '',
+                '确认应用修改？应用前会先在沙箱中验证参考答案是否通过全部测试用例。'
+            ]).join('\n');
+
+            if (!confirm(summary)) return;
+
+            const applyResponse = await fetch(`/training/api/exercises/{{ exercise.id }}/ai-modify/`, {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+                body: JSON.stringify({instruction: instruction.trim(), apply: true})
+            });
+            const applyData = await applyResponse.json();
+            if (applyData.success) {
+                alert(applyData.message || '已保存修改');
+                location.reload();
+            } else {
+                alert('应用失败: ' + (applyData.error || ''));
+            }
+        } catch (error) {
+            alert('AI 修改失败，请重试。');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-stars"></i> AI 修改';
+        }
+    }
+</script>
+{% endif %}
 {% endblock %}

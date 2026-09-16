@@ -1,391 +1,210 @@
-# 项目深度诊断与优化方案
+# 项目深化优化方案（v2 路线图）
 
-> 生成日期：2026-09-16
-> 依据：对全仓库（config、10 个 app、templates、static）的静态深度分析，关键判分 bug 已人工逐行复核。
-> 性质：防御性安全审计 + 代码质量诊断，未进行实际渗透测试。
+> 文档版本：v2.0 ｜ 重写日期：2026-09-16 ｜ 适用代码库：v1.2.0
+> 定位：面向**后续优化工作**的活文档（living roadmap）。每完成一项，在对应条目打 ✅ 并在文末「执行记录」登记；发现新问题随时追加到相应维度。
+> 使用方式：开工前从第 0 章选定本次冲刺范围 → 按「执行机制」验收 → 更新本文件与相关手册。
 
-## 总体评价
+## 0. 现状基线（v1.2.0）
 
-架构设计合理（课程→章节→课程单元、Cell JSON 多态、AI Agent 分层清晰），功能面广，但存在 **3 类致命安全漏洞 + 3 个让核心功能失效的 bug**，测试覆盖为零，大量依赖（Celery / DRF / HTMX / CodeMirror / allauth / markdownx）安装后未使用。**当前代码不适合对公网开放**。
+已完成并验证（100 个测试通过）：沙箱双后端（subprocess/Docker）与逃逸防护、XSS 全链路修复、权限体系、判分正确性与防刷、考试计时/原子提交、证书 PDF、真实 Jupyter 内核会话、多模型 AI（Claude/DeepSeek/proxy）、AI 工具调用（notebook 素材）、内容生成与修改的 Skill 模式（四硬规则 + 沙箱验证 + 干跑默认）、教师工作台（课程/章节/单元/练习/考试管理 + 章节级 AI 填充）、Celery 接线（eager 默认）、视频校验与渲染、成本跟踪与日限额、工业级文档（用户/程序员手册）。
 
-按优先级分为：🔴 P0（必须立即修）→ 🟠 P1（高）→ 🟡 P2（中）→ 🟢 P3（功能补全与长期优化）。
-
----
-
-## 🔴 P0 — 安全与核心功能
-
-### P0-1 代码执行完全无沙箱（RCE）
-
-**位置**：[apps/code_runner/executor.py:64-198](apps/code_runner/executor.py#L64-L198)
-
-**问题**：尽管模块 docstring 和 CLAUDE.md 声称使用 RestrictedPython，实际上 `_execute_restricted()` 是裸 `exec(code, namespace)` 直接运行在 Django 进程内，仅靠子串关键词黑名单防护：
-
-- 绕过方式（全部成立）：
-  - `from os import system` —— 不含 `import os` 子串
-  - `import  os`（双空格）、`open (` 加空格
-  - `__builtins__['__builtins__']['__im'+'port__']('os')` —— 字符串拼接绕过 `__import__` 黑名单；且黑名单把真实 `__import__` 直接放进了 "safe builtins"（[executor.py:93-95](apps/code_runner/executor.py#L93-L95)）
-  - `len.__self__.__dict__['open']('/etc/passwd').read()` —— `len.__self__` 即真实 builtins 模块，绕过 `open(` 黑名单
-  - `().__class__.__mro__[1].__subclasses__()` —— 经典对象子类遍历；`getattr`/`type`/`dir`/`hasattr` 均被显式提供给沙箱
-- 后果：任何登录用户（配合 P0-12，甚至不需要选课）即可在服务器上读文件、开进程、访问网络、`os._exit(0)` 杀进程。
-- 误伤：`print("open(")` 这类合法代码反而被黑名单误杀。
-
-**修复建议**（按成本递增）：
-1. 最短路径：改用 **subprocess 子进程隔离** —— 起一个受限 Python 子进程执行代码，父进程用 `subprocess.run(..., timeout=N)` 强制超时、限制 `resource`/内存，不依赖任何黑名单。
-2. 中期：真正接入 RestrictedPython 7.0（已在 requirements.txt 中），配合 `safe_builtins` 白名单 + AST 过滤。
-3. 终极：Docker 容器隔离（`docker/` 目录已预留，`_execute_docker` 是 TODO 桩）。
-
-### P0-2 执行无超时（DoS）
-
-**位置**：[apps/code_runner/executor.py:24](apps/code_runner/executor.py#L24)
-
-**问题**：`self.timeout` 赋值后从未被读取，无 signal/线程/subprocess 隔离。`while True: pass` 可永久挂死同步 worker 线程；`Submission.grade()` 里捕获 `TimeoutError` 的分支（[training/models.py:164-166](apps/training/models.py#L164-L166)）是死代码。`CODE_EXECUTION_TIMEOUT` 等设置（[base.py:162-164](config/settings/base.py#L162-L164)）无人使用。
-
-**修复**：随 P0-1 一起解决（subprocess 天然支持 timeout）。
-
-### P0-3 存储型 XSS（4 处）
-
-**位置**：
-- [templates/learning/lesson_edit.html:402](templates/learning/lesson_edit.html#L402) —— `{{ cells_json|safe }}` 直接嵌入 `<script>`；`json.dumps` 不转义 `<`/`>`/`&`，而单元格 `output` 是学生可控的（`Cell.execute()` 保存学生 stdout）。学生在代码单元格打印 `</script><script>…</script>`，教师下次打开编辑器即被劫持（以教师权限执行）。
-- [templates/learning/lesson_edit.html:276,316](templates/learning/lesson_edit.html#L276) 与 [lesson_detail.html:227](templates/learning/lesson_detail.html#L227) —— `x-html` + `marked.parse()` 默认放行原始 HTML，全项目无 DOMPurify；`escapejs` 不转义反引号，markdown 内容可突破 `renderMarkdown(\`…\`)` 模板字符串参数。
-- [templates/chat/chat_interface.html:493-504](templates/chat/chat_interface.html#L493-L504) —— JS 用 `innerHTML` 拼接未转义的用户消息和 AI 回复（`addMessageToUI`/`loadConversation` 共用）。
-
-**修复**：
-1. 替换为 Django `{{ cells_json|json_script:"cells-data" }}` + `JSON.parse(document.getElementById('cells-data').textContent)`。
-2. 引入 DOMPurify（cdnjs 可用），所有 `x-html` 与 marked 输出统一过 `DOMPurify.sanitize()`。
-3. 聊天界面改用 `textContent`/`createElement`，或先 `escapeHtml()` 再插入。
-4. `renderMarkdown` 失败回退应返回纯文本而非原始 markdown。
-
-### P0-4 注册越权
-
-**位置**：[apps/accounts/views.py:26,55](apps/accounts/views.py#L26)
-
-**问题**：`user_type = request.POST.get('user_type', 'student')` 无白名单直接传给 `create_user()`。注册页甚至公开提供 "Instructor" 选项；构造 POST `user_type=admin` 可直接建管理员角色账号。
-
-**修复**：只允许 `student`；instructor 账号仅由管理员创建。同时接入 `django.contrib.auth.password_validation.validate_password()`（现有密码校验仅 `len() < 8`，settings 里配好的 4 个 validator 从未被调用）。
-
-### P0-5 登录开放重定向
-
-**位置**：[apps/accounts/views.py:99-100](apps/accounts/views.py#L99-L100)
-
-**问题**：`next_url = request.GET.get('next', ...)` 未校验直接 `redirect(next_url)`，`//evil.com` 可跳离站。
-
-**修复**：用 Django 5.0 的 `django.utils.http.url_has_allowed_host_and_scheme()` 校验。另：logout 是 GET 状态变更，建议改 POST。
-
-### P0-6 硬编码凭据
-
-**位置**：
-- [apps/learning/management/commands/import_notebook.py:30](apps/learning/management/commands/import_notebook.py#L30) —— `admin/adminpass`
-- [apps/learning/management/commands/load_notebook_data.py:44-46](apps/learning/management/commands/load_notebook_data.py#L44-L46) —— `admin123`
-- [apps/examination/management/commands/load_sample_exams.py:17-26](apps/examination/management/commands/load_sample_exams.py#L17-L26) —— `instructor/instructor123`
-
-**修复**：改为命令行参数（`--username`/`--password`）或环境变量，未提供时交互式输入/报错退出，绝不落默认密码。
-
-### P0-7 密钥管理
-
-- `.env` 含真实第三方代理 API key（已 gitignore，但建议**尽快轮换**，特别是仓库可能被分享时）。
-- `.env` 与 `.env.example` 中 `SECRET_KEY` 均为占位符 `your-secret-key-here-change-in-production`。
-- 聊天请求把服务器本地绝对路径（ClassLib 文件路径）发给 LLM 供应商（[chat/ai_service.py:32-57](apps/chat/ai_service.py#L32-L57)）——应改为只发文件名 + 相对路径。
-
-### P0-8 训练判分恒"通过"（已人工验证）
-
-**位置**：[apps/training/models.py:135-142](apps/training/models.py#L135-L142)
-
-**问题**：`grade()` 读取不存在的键 `results`/`tests_passed`/`tests_total`（`execute_with_tests` 实际返回 `test_results`/`passed_tests`/`total_tests`）。三者恒为 `[]`/`0`/`0`，`if self.tests_passed == self.tests_total` → `0 == 0` 恒真 → **所有提交一律判"通过"、全额给分**（即使测试全错）。积分系统随之可无限刷。
-
-**修复**（一行级改动）：
-```python
-self.test_results = result.get('test_results', [])
-self.tests_passed = result.get('passed_tests', 0)
-self.tests_total = result.get('total_tests', 0)
-```
-并增加 `if self.tests_total > 0` 守卫。
-
-### P0-9 考试代码题恒 0 分（已人工验证）
-
-**位置**：[apps/examination/views.py:257](apps/examination/views.py#L257)
-
-**问题**：`passed_tests = result.get('passed', 0)` —— 实际键是 `passed_tests` → 永远 0 → 所有代码题 0 分、`is_correct=False`。
-
-**修复**：改为 `result.get('passed_tests', 0)`。
-
-### P0-10 判断题完全失效
-
-**位置**：[apps/examination/models.py:119](apps/examination/models.py#L119)
-
-**问题**：`getattr(self, 'truefalseavequestion', None)` 拼写错误（应为 `truefalsequestion`）→ 判断题详情永远取不到 → 考试界面无作答控件（[exam_interface.html:125](templates/examination/exam_interface.html#L125)）、`auto_grade()` 对判断题直接跳过 → 判断题不判分、不进总分。
-
-**修复**：改正拼写；建议给 `TrueFalseQuestion.question` 加显式 `related_name`，并把 4 个 `getattr` 改为显式字典映射，避免同类问题。
-
-### P0-11 单元格重排/插入/删除 IntegrityError
-
-**位置**：[apps/learning/views.py:173,283,346-348](apps/learning/views.py#L346-L348) + [models.py:111](apps/learning/models.py#L111)
-
-**问题**：`unique_together=['lesson','order']` 是即时约束，`order__gte=order).update(order=F('order')+1)` 类逐行位移（如 1→2 与 2→3）在 SQLite/Postgres 默认约束下中途撞唯一性 → 拖拽换序保存必炸；删除同理；两个单元格互换更是第一步就撞。
-
-**修复**：先 `update(order=F('order') + 10000)` 挪到安全区，再归位；或把 constraint 声明为 deferrable。建议抽一个 `_renumber_cells(lesson, orders: list[int])` 工具函数统一三处逻辑。
-
-### P0-12 学习/考试权限缺失
-
-**位置**：
-- [apps/learning/views.py:91-152](apps/learning/views.py#L91-L152) —— `LessonDetailView` 不校验 `status=published` 与选课；`LessonEditView` 仅 `LoginRequiredMixin`，任何登录用户可打开任何课程单元的编辑页（泄露全部单元格内容与 `cells_json`）
-- [apps/learning/views.py:293-316](apps/learning/views.py#L293-L316) —— `execute_cell` 不校验选课，任何登录用户可执行任意课程单元的代码（配合 P0-1 即全员 RCE）
-- [apps/examination/views.py:45-47](apps/examination/views.py#L45-L47) —— `ExamDetailView` 不过滤 `is_published`，草稿考试对所有人可见
-
-**修复**：抽公共权限助手（现 4 处复制粘贴 `request.user != instructor and not is_staff`）；详情页过滤 `status=published`；编辑页要求 instructor/staff；`execute_cell` 要求已选课学员。
+**已知技术债总量**：见第 5 章登记表（共 30+ 项，按 P0-P3 分级）。
 
 ---
 
-## 🟠 P1 — 高优先级
+## 1. 安全与合规
 
-### P1-1 考试计时纯摆设
+### 1.1 认证加固（P1）
+- **现状**：登录无速率限制（可暴力破解）；无邮件验证；无自助找回密码（仅管理员 `changepassword`）。
+- **方案**：登录失败计数（按用户名+IP，5 次/15 分钟锁定，用 cache 实现，无需模型）；密码找回留管理员流程并在手册注明（v2 暂不做邮件验证，邮件配置成本高）。
 
-**位置**：[apps/examination/views.py:107-112,188-229](apps/examination/views.py#L107-L112)
+### 1.2 接口滥用防护（P1）
+- **现状**：练习提交/内核执行/单元生成**无请求频率限制**——沙箱与内核都是昂贵资源，单个用户可刷爆（生成类还会刷爆 AI 日额度）。
+- **方案**：中间件或装饰器级限流（cache 计数）：提交 ≤10 次/分钟/人；AI 生成类端点 ≤20 次/小时/人；内核会话每用户上限（现全局 LRU 20 个会被单用户挤占他人，见 3.3）。
 
-`time_remaining_seconds` 只在开始时写入一次、从不校验/递减（模型 help_text 声称"后端验证防作弊"——不存在）。刷新页面计时归零；`save_answer`/`submit_exam` 随时可提交；禁 JS 则无计时。
+### 1.3 密钥与配置（P1）
+- **现状**：`.env` 有真实密钥（已 gitignore）；`deepseek_Api` 存于系统环境变量；`SECRET_KEY` 为占位符（开发可用，生产已强制拦截）。
+- **方案**：① 密钥轮换流程写入部署手册；② 开发机 `.env` 占位符 → 生成真实随机值；③ 排查系统环境变量与 `.env` 的优先级冲突（此前 `AI_MODEL` 系统变量曾覆盖 `.env` 造成困惑——在部署手册补「环境变量优先级」小节）。
 
-**修复**：`StudentExam` 记录 `started_at`；`save_answer`/`submit_exam` 校验 `now - started_at <= duration`，超时后 `submit_exam` 按已答内容计分。
-
-### P1-2 考试提交无原子性
-
-**位置**：[apps/examination/views.py:232-234](apps/examination/views.py#L232-L234)
-
-先置 `is_submitted=True` 再判分、无事务。判分中途异常（如无 `student_profile`，[views.py:285](apps/examination/views.py#L285)）→ 学生被锁死在"已提交未计分"；双击并发可双重提交、双重加分。
-
-**修复**：`transaction.atomic()` + `select_for_update()` 包裹整个提交流程；`is_passing()` 加分之前先判断是否已计分。
-
-### P1-3 学生执行结果写入共享单元格
-
-**位置**：[apps/learning/models.py:120-138](apps/learning/models.py#L120-L138)
-
-`Cell.execute()` 把每个学生的 stdout/状态/执行次数持久化进课程共享 cell，学生之间、学生与教师互相覆盖。
-
-**修复**：执行结果只回传前端，不落库；或按用户存到 `LessonProgress.code_cells_run` 级别的会话数据。
-
-### P1-4 积分可刷 + 提示扣分两套标准
-
-**位置**：[apps/training/models.py:142-155](apps/training/models.py#L142-L155)、[views.py:154-158](apps/training/views.py#L154-L158)
-
-- 同一练习可反复提交反复加分（无 passed 唯一性约束），`total_exercises_completed` 按提交数而非去重练习数累计。
-- admin "Regrade" 动作对已通过提交重跑 `grade()` → 二次加分、统计二次膨胀。
-- 判分用硬编码 `hints_used * 2`，提示查看实际扣 `points_penalty`（样例数据为 3/5/7）。
-
-**修复**：同一 (student, exercise) 通过后不再加分（只更新提交记录）；Regrade 改为只重算不重加分（或加 `select_for_update` 与幂等标记）；扣分统一按 `points_penalty` 累计，提示扣分用 `F()` 表达式防竞态。
-
-### P1-5 随机种子污染全局状态
-
-**位置**：[apps/examination/views.py:138-139](apps/examination/views.py#L138-L139)
-
-`random.seed(student_exam.randomization_seed)` 直接污染进程全局 RNG：并发加载互相穿插 → 同一学生刷新题目顺序变化；并干扰其他 random 消费者（如 `StudentExam.save` 生成 seed）。
-
-**修复**：用局部 `random.Random(seed)` 实例；或按 seed 对题目 id 排序（确定性洗牌）。
-
-### P1-6 聊天历史取错端
-
-**位置**：[apps/chat/views.py:91](apps/chat/views.py#L91)
-
-注释说 "Last 20 messages"，实际 `order_by('created_at')[:20]` 取的是**最旧** 20 条——长对话时上下文陈旧、近期轮次丢失。
-
-**修复**：`order_by('-created_at')[:20]` 后反转；或直接保留窗口截取。
-
-### P1-7 生产部署配置坏
-
-- [wsgi.py:14](config/wsgi.py#L14)/[asgi.py:14](config/asgi.py#L14) 指向 `config.settings`（包 `__init__` 为空文件）→ 未设环境变量时生产启动直接 ImproperlyConfigured。应指向 `config.settings.production`。
-- `SECRET_KEY` 占位符、`DEBUG` 默认 True、`ALLOWED_HOSTS=['*']`（development.py）；production.py 应强制要求 `SECRET_KEY` 存在且非占位符。
-- production 日志写 `BASE_DIR/logs/django.log`（[production.py:63](config/settings/production.py#L63)）但目录不存在、无人创建 → 首次写日志抛异常。加 `.gitkeep` 或启动时 `mkdir`。
-- `LOGIN_REDIRECT_URL='/dashboard/'`（[base.py:141](config/settings/base.py#L141)）不是注册路由（实际是 `/accounts/dashboard/`）→ 登录后 404。
-- development.py 的 `CORS_ALLOW_ALL_ORIGINS` 是死配置（未安装 django-cors-headers）；Sentry `send_default_pii=True` 建议关闭。
-
-### P1-8 AI Agent 全是死代码 + 代理端点失效
-
-- 4 个 Agent 类仅被 [verify_features.py](verify_features.py) 引用，无任何 view/命令/模型调用；输出无处落库。
-- [base_agent.py:25](apps/ai_agents/base_agent.py#L25) 创建 client 时不传 `base_url` → 忽略 `ANTHROPIC_API_BASE_URL`。`.env` 配置的是第三方代理端点（api.jiekou.ai），Agent 一旦接线会打官方端点 → 鉴权必然失败。（`ChatAIService` 是正确的参考实现。）
-- [base_agent.py:44](apps/ai_agents/base_agent.py#L44) `"temperature": temperature or self.temperature` —— `temperature=0` 被吞成 0.7；`generate_json` 的 ```json 围栏剥离只处理首尾，前有前言即解析失败，无重试。
-
-**修复**：统一 Client 工厂（key + base_url + timeout）；`is not None` 判断参数；JSON 用正则提取第一个 `{...}` 块。
-
-### P1-9 course_detail 模板 N+1
-
-**位置**：[templates/learning/course_detail.html:83-110](templates/learning/course_detail.html#L83-L110)
-
-每章 1 次 COUNT + 每课 1 次查询 + **每课重复加载全部进度行再逐条遍历**（O(L²) 行扫描）。
-
-**修复**：视图 `prefetch_related('chapters__lessons', 'enrollments__lesson_progress')`，模板改字典查找。
+### 1.4 依赖与基线更新（P2）
+- **现状**：requirements.txt 已按 Python 3.13 对齐（2026-09），但无定期更新机制；无 `pip-audit` 类漏洞扫描。
+- **方案**：季度依赖升级 + 每次升级跑全量测试；GitHub Actions 加 `pip-audit` 步骤（见 5.6 CI）。
 
 ---
 
-## 🟡 P2 — 中优先级
+## 2. 可靠性
 
-### P2-1 测试为零（修复 P0 后第一优先补）
+### 2.1 AI 生成稳定性监控（P1）
+- **现状**：`AIGenerationHistory` 记录了每次调用（成功/失败/耗时/成本），但**没有可视化**——ai_agents 未注册 admin，失败原因只能查库。
+- **方案**：`apps/ai_agents/admin.py` 注册 `AIGenerationHistory`（只读：agent/模型/成败/成本/时间），加失败率展示；`test_ai_agents` 已是连通性探针，可再加 cron 定期探测告警。
 
-- 5 个 app 的 `tests.py` 全是空壳；无 pytest.ini/pyproject/conftest.py；pytest-django 无 `DJANGO_SETTINGS_MODULE` 配置，CLAUDE.md 中的 pytest 命令跑不起来。
-- `test_executor.py`/`verify_features.py` 是 print 冒烟脚本，后者直接运行会因注释掉的 `django.setup()` 崩溃。
-- **行动**：建立 pytest 配置 + 对每个 P0/P1 修复写回归测试（判分键名、权限、XSS 转义、重排事务）。
+### 2.2 模型回退链（P1）
+- **现状**：单模型无回退——`deepseek-flash` 偶发思考循环（已内置去 temperature 重试），仍失败则整次生成失败。
+- **方案**：`ai_config` 支持回退链配置（如 `AI_FALLBACK_MODELS=deepseek-flash,deepseek-chat`）：主模型失败（空文本/APIError 重试后）→ 依次切换回退模型重试一次。生成类 Agent 与聊天共用。
 
-### P2-2 装而未用的依赖
+### 2.3 长任务异步化（P2）
+- **现状**：课程单元内容生成（两阶段约 30-60 秒）同步阻塞 HTTP；视频渲染同步阻塞命令；仅训练判分接了 Celery。
+- **方案**：① 单元生成/章节批量生成走 Celery 任务 + 前端轮询状态（复用 eager 模式保证开发行为不变）；② 视频渲染任务化；③ 任务加 `max_retries` 与指数退避。
 
-Celery（无 celery.py 应用、无 tasks.py、无 `.delay()`）、DRF（零 serializer）、allauth、markdownx、CodeMirror（且 CDN 引入的是 v5 全局版脚本，v6 是 ESM-only，即使使用也无效）、HTMX（学习页未用）、Sentry 部分配置。`static/css/main.css` 404；`static/js/`、`static/css/` 空目录；`MARKDOWNX_MARKDOWN_EXTENSIONS` 孤配置。
+### 2.4 考试交卷前端收尾（P1）
+- **现状**：答题页 2 秒防抖自动保存，**交卷按钮未 flush 未完成的保存**——最后 ~2 秒的输入可能丢失（审计遗留项）。
+- **方案**：`submitExam()` 先 `clearTimeout(saveTimers)` 并立即 await 一次 save-answer，再调交卷。
 
-**行动**：明确取舍——要么接线，要么从 requirements/模板中移除，避免误导。
-
-### P2-3 死代码
-
-- `Video` 模型（无任何读写方）、`CellVersion`（只写不读、无恢复端点、无限膨胀）、`rendered_html`（服务端渲染无人消费）、cell handler 的 `render()` 钩子、`video_generator` 整个 app（空文件）、`docker/`、`scripts/` 空目录、`apps/core/` 空壳。
-- `AI_CACHE_ENABLED`/`AI_COST_LIMIT_DAILY` 设置无人读取。
-
-### P2-4 异常信息泄露
-
-所有 API 用宽泛 `except Exception as e: return JsonResponse({'error': str(e)}, 400)`：泄露内部异常/堆栈路径，且服务器错误误标 400。位置：[learning/views.py:209-210,261-262,287-288,326-327,352-353,382-383](apps/learning/views.py#L209-L210)、[training/views.py:138](apps/training/views.py#L138)、[chat/views.py:138-142](apps/chat/views.py#L138-L142)、[chat/ai_service.py:130-136](apps/chat/ai_service.py#L130-L136)。
-
-**修复**：统一错误处理助手——`DEBUG` 下返回详情，生产返回通用消息 + 服务端记录日志。
-
-### P2-5 中文标题 slug 冲突
-
-`slugify('中文')` 得空串；第二篇中文标题课程/练习触发 unique 约束 IntegrityError → 500。位置：[learning/models.py:33-36](apps/learning/models.py#L33-L36)、[training/models.py:46-49](apps/training/models.py#L46-L49)。**修复**：空 slug 时用 `uuid4().hex[:8]` 兜底。
-
-### P2-6 模板引用不存在的东西（静默失效）
-
-- `lesson.get_previous`/`get_next`（[lesson_detail.html:323-350](templates/learning/lesson_detail.html#L323-L350)）→ 上下课导航永不渲染 → 补 `Lesson` 方法。
-- `progress.completion_percentage`（[lesson_detail.html:202](templates/learning/lesson_detail.html#L202)）→ 进度条恒 0% → 补属性或改字段。
-- `can_edit` 未传入 `CourseDetailView`（[course_detail.html:44](templates/learning/course_detail.html#L44)）→ 编辑课程按钮永不渲染。
-
-### P2-7 其余 N+1
-
-- 考试列表逐题 COUNT（[examination/views.py:35-41](apps/examination/views.py#L35-L41)）→ `annotate(Count(...))`。
-- 考试答题页/成绩页逐题 `get_specific_question()`（每道题最多 4 次反向 FK 查询）→ prefetch 四个 OneToOne。
-- `submit_exam` 答案循环缺 `select_related('question')`。
-- 训练提交历史缺 `select_related('exercise')`（[training/views.py:181-184](apps/training/views.py#L181-L184)）。
-- `ExerciseDetailView` 模板内 `hints.count`、`exam_interface` 重复调用 `get_total_points()`。
-
-### P2-8 其他正确性/健壮性
-
-- `video_cell` 校验 `source_type in ['manim']`，编辑器提交 `manim_generated`（[lesson_edit.html:349](templates/learning/lesson_edit.html#L349)）→ Manim 视频单元格保存必失败。统一枚举。
-- `start_exam` 是状态变更型 GET；attempt_number 并发竞态（[examination/views.py:86-114](apps/examination/views.py#L86-L114)）。
-- `Enrollment.completed_at` 在 100% 完成时从不设置（[learning/models.py:234-251](apps/learning/models.py#L234-L251)）。
-- `track_cell_execution` 对 JSON 列表读-改-写竞态（[learning/models.py:286-291](apps/learning/models.py#L286-L291)）。
-- 两个 notebook 导入命令逻辑重复（`import_notebook.py` vs `load_notebook_data.py`，含重复的 output 提取逻辑），且重跑 `import_notebook` 会因 order 重复炸 IntegrityError；`load_additional_content` 依赖前序命令且异常无友好提示。
-- `create_cell` 接受任意 `cell_type` 字符串（choices 仅在表单层校验）→ 非法类型入库。加 `choices` 校验 + 未知 handler 拒绝。
-- 考试 `save_answer` 不校验 answer_data 形状/大小；`submit_solution` 不限制代码长度。
-- `ExerciseListView` 未要求登录（未登录可看全部练习列表）；训练 app 无发布/草稿概念。
-- 训练练习按 `difficulty` 字母序排（advanced < beginner < intermediate）不构成难度递进。
-- `Question.get_specific_question` 的 `getattr` 魔法 + 拼写错误（P0-10）说明该模式脆弱，建议改显式映射。
-- 依赖过旧：Django 5.0（主流支持已结束）、anthropic==0.40.0（.env 里却用 claude-sonnet-4-5 模型名）。
-- `TIME_ZONE='UTC'` 对中文教学应用不合适；UI 中英文混杂。
-- `.env.example` 缺 `ANTHROPIC_BASE_URL`（代码在读取）；`.env.example` 的 PostgreSQL DB 配置被 development.py 忽略。
+### 2.5 成绩一致性（P2）
+- **现状**：后台人工评阅简答题后 `StudentExam.score` **不自动重算**；`show_results_immediately` 字段未在结果页生效（通过的学生永远立即看到结果）。
+- **方案**：评阅保存信号或 admin save 钩子里重算 `calculate_score()`；结果页按 `show_results_immediately` 决定是否展示解析。
 
 ---
 
-## 🟢 P3 — 功能补全与长期优化
+## 3. 性能与容量
 
-0. **项目内 AI 工具调用能力（notebook-reader 接入）**：给 Django 应用内的 AI（聊天助手、后续的智能体）添加 Anthropic tool-use 能力，通过安全的服务端工具调用共享解析器 `apps/core/notebook_parser.py`：
-   - 工具集：`list_notebooks`（列出 ClassLib 资料及结构）、`get_notebook_digest`（结构摘要）、`get_notebook_section`（读取某一节完整内容，含代码输出）
-   - 要点：文件名白名单校验（防路径穿越）、结果长度截断、噪音单元格剔除、**不再把服务器绝对路径发给 LLM**（顺带修复 P0-7）、聊天历史取最近 20 条（顺带修复 P1-6）、异常信息按 DEBUG 开关脱敏（顺带修复 P2-4）
-   - 智能体（Learning/Training/Examination Agent）接线后复用同一工具层
-1. **代码执行真隔离（P0-1 的终极形态）**：subprocess + 资源限制起步，Docker 容器为终态（`docker/` 目录已预留）。
-2. **AI Agent 接线**：
-   - 教师端生成课程单元/练习/考题的管理命令或界面（对应 CLAUDE.md 承诺的 `generate_lesson` 等命令，目前全部不存在）；
-   - 作文题 AI 评分（`ExaminationAgent.evaluate_essay_answer` 已写好，当前作文永远 `needs_review`，且 `submit_exam` 在作文未评分时就计算总分/通过与否）；
-   - 统一走 `ANTHROPIC_API_BASE_URL`；接入缓存、token 统计、成本上限（设置已就位无人用）。
-3. **异步化**：判分/聊天/AI 生成走 Celery（当前聊天同步阻塞、无流式、max_tokens 固定 2000）。
-4. **证书生成**：weasyprint/reportlab 已在依赖、`Certificate` 模型已建（含验证码），只差 PDF 生成 + 校验端点；结果页"下载证书"按钮标注"开发中"。
-5. **视频生成**：`video_generator` 从零实现（Manim 脚本校验 → Celery 渲染队列 → 存储），或明确砍掉精简依赖。
-6. **部署**：Dockerfile + docker-compose、`logs/` 目录、`collectstatic`、Sentry 接线。
-7. **体验**：编辑器保存/删除后 `location.reload()` 丢失滚动与撤销状态；拖拽换序需单独点"保存顺序"按钮；`alert()` 反馈；聊天历史无摘要/截断策略（超长对话 token 膨胀）。
+### 3.1 剩余 N+1（P2，审计遗留）
+- `ExerciseDetailView` 模板 `hints.count`；`exam_interface` 重复调用 `get_total_points()`；`exam_detail` 的 `questions.count`。
+- **方案**：视图传 `hints_count`/`total_points` 上下文变量，模板去掉方法调用。
+
+### 3.2 学习进度时间统计（P3）
+- **现状**：`LessonProgress.time_spent_seconds` 字段**从未被写入**（界面上显示恒 0）。
+- **方案**：前端心跳（每 30 秒或执行单元格时上报增量）或 `last_accessed` 差值估算；写入用 `F()` 原子累加。
+
+### 3.3 内核会话治理加固（P1）
+- **现状**：注册表全局 20 个 LRU——**单用户大量并发可挤占他人会话**；无按用户配额。
+- **方案**：每用户最多 2 个内核（超出复用/拒绝提示），全局上限保留；空闲回收已有。
+
+### 3.4 静态资源与缓存（P3）
+- **现状**：前端库全 CDN；无 HTTP 缓存策略；无 Redis 页面缓存（生产 CACHES 已配 Redis 但只用于 AI 缓存）。
+- **方案**：课程列表/详情等读多写少页面加缓存键版本化（课程发布时失效）；`staticfiles` 指纹已由 WhiteNoise 处理。
 
 ---
 
-## 建议实施顺序
+## 4. 功能完整度
 
-```
-第 1 阶段（安全止血，约 1-2 天）
-  P0-1/2 执行器改造（先上 subprocess 隔离 + 超时，最快）
-  P0-3  XSS：json_script 过滤器 + DOMPurify + 聊天界面转义
-  P0-4/5 注册白名单 + validate_password + is_safe_url
-  P0-6  删除硬编码密码
-  P0-12 补权限检查（LessonDetail/Edit、ExamDetail、execute_cell）
+### 4.1 学习课堂
+- [ ] **单元格版本恢复 UI**（P2）：API 已就绪（`restore_cell_version` + 快照），编辑器加「历史」下拉 + 恢复按钮。
+- [ ] **导出 PDF**（P3）：`export_notebook` 已有 json/md，补 PDF（reportlab 复用证书模式）与 `.ipynb` 格式（解析器 `to_json` 反写 ipynb 结构）。
+- [ ] **孤儿 `Video` 模型接线**（P3）：视频单元格/生成命令已存 `Video` 记录，但课程单元的视频展示走 Cell.data——统一视频元数据入口或明确废弃该模型。
+- [ ] **`Cell.execute()` 旧方法退役**（P3）：学习执行已走内核，该方法无调用方——删除或改为内核语义，避免新代码误用。
 
-第 2 阶段（修复核心功能，约 1 天）
-  P0-8/9/10 判分键名 + truefalse 拼写
-  P0-11 重排事务（先挪安全区再归位）
-  P1-1 考试计时服务端校验
-  P1-2 提交原子性
-  P1-3 共享单元格改为会话级
+### 4.2 训练课堂
+- [x] **练习编辑/删除界面**（P2）：现只有创建 + AI 修改，缺常规编辑表单（复用 exercise_form 加编辑模式）与删除（含提交历史保护策略）。*（注：编辑/删除仍待做，AI 修改已完成）*
+- [x] **AI 修改按钮**（P1）：习题详情页「AI 修改」预览/应用流程（端点 + 前端 + 测试 ✅）。
 
-第 3 阶段（回归测试，约 1-2 天）
-  pytest 配置 + 对以上每个修复写回归测试 + 判分正确性测试
+### 4.3 考试课堂
+- [x] **考试管理页题目级 AI 修改**（P1）：考试管理页题目列表 + 逐题「AI 修改」预览/应用（含沙箱验证）✅。
+- [x] **`validate_exam` 命令**（P1）：发布前整卷代码题沙箱验证 ✅。
+- [ ] **简答题教师评阅界面**（P2）：现仅 admin 可改；教师考试管理页加待评阅列表 + 打分表单（复用 2.5 重算）。
+- [ ] **整卷 AI 生成改为两阶段**（P2）：`generate_exam` 现单次 JSON 生成整卷，推理模型下不稳定——改为「题型分布请求 → 逐题短请求」，复用 6.8 两阶段模式。
 
-第 4 阶段（体验与性能）
-  P1-9 / P2-7 N+1 修复、P1-6 聊天历史、P1-5 随机种子、
-  P2-5 slug 冲突、P2-6 死模板引用清理
+### 4.4 聊天助手
+- [ ] **流式响应**（P3）：SSE 逐字输出，前端增量渲染（打字体验）；当前整段返回 max_tokens=2000。
+- [ ] **消息长度限制**（P2）：服务端校验输入 ≤4000 字符；超长历史窗口截断/摘要（现只取最近 20 条）。
+- [ ] **推荐资源结构化**（P3）：现用文件名子串匹配——改为让模型在回答中输出结构化资源引用（工具循环已具备，加一个 `suggest_resource` 工具或输出约定）。
 
-第 5 阶段（功能与部署）
-  AI Agent 接线 → Celery 异步 → 证书 → 视频 → Docker 部署
-```
+### 4.5 AI 基础设施
+- [ ] **PromptTemplate / ContentValidation 模型落地**（P2）：CLAUDE.md 承诺但未实现——至少把各 Agent 的契约提示词收敛到 `AIGenerationHistory.prompt` 可检索的模板表（内容生成已内置沙箱验证，ContentValidation 可先不做，明确从 CLAUDE.md 移除或标记延后）。
+- [ ] **AIGenerationHistory admin 视图**（P1，同 2.1）。
+- [ ] **生成任务并发闸**（P3）：防多教师同时触发大量生成——Celery 队列限流（`task_rate_limit`）。
 
-## 备注
+### 4.6 视频
+- [ ] **缩略图生成**（P3）：FFmpeg 首帧抽帧 + `Video.thumbnail`。
+- [ ] **渲染队列异步化**（P2，同 2.3）。
+- [ ] **清理命令**（P3）：`cleanup_videos --older-than N`（CLAUDE.md 已列）——清理孤儿渲染文件与失败任务。
 
-- 本审计为静态代码分析（防御性），未做实际渗透；`.env` 中的真实 API key 未在文档中复现，建议尽快轮换。
-- 修复时同步更新 CLAUDE.md 中的"Current Implementation Status"，避免文档与代码继续脱节（现状：CLAUDE.md 声称的 RestrictedPython 沙箱、Celery 队列、Docker 隔离、pytest 工作流均与代码不符）。
+### 4.7 账号体系
+- [ ] **登录限流**（P1，同 1.1）。
+- [ ] **教师仪表盘增强**（P3）：考试通过率、练习提交趋势等简单统计卡片。
 
-## 进度记录
+---
 
-- **2026-09-16（深夜批）**：AI 生成稳定性与教师工作台
-  - ✅ **推理模型兼容层**（DeepSeek reasoner/flash 实测驱动）：temperature 拒绝自动重试、ThinkingBlock 跳过、思考耗尽预算自动去 temperature 重试、空文本明确报错、`_extract_json` 容错链（围栏/裸对象序列/丢外层包装）、`generate_json` 支持按阶段 `max_tokens`
-  - ✅ **两阶段内容生成**：结构请求（小响应）→ 逐格短请求（每格 ≤1200 token）→ Markdown 切分降级——推理模型长提示下思考循环问题解决，8 格课程单元实测成功
-  - ✅ **课程详情页章节级 AI 填充**：每章「AI 生成本章」（无单元先规划再填充、有单元顺序生成带进度）、每单元「AI 生成/重新生成」+ 单元格徽标；`_error_response` 自递归 bug（500 HTML 掩盖真实错误）修复 + 回归测试
-  - ✅ **教师工作台补全**：`create_instructor` 命令、课程/章节/单元创建界面、发布/下线切换、学员进度名单、练习创建表单、考试审核发布
-  - ✅ **94 个测试全部通过**
-- **2026-09-16**：P3 全部完成（Docker 隔离 / Celery / 视频管线 / 跟踪与成本控制 / 版本恢复 / 导出）
-  - ✅ **P3-1 Docker 隔离完成**：执行器重构——runner 抽为独立文件 `apps/code_runner/sandbox_runner.py`（subprocess 与 Docker 共用单一来源）；`docker/sandbox/Dockerfile`（python:3.13-slim、非 root、ENTRYPOINT runner）；`_execute_docker` 实现（`--network none`、128m 内存、0.5 CPU、pids-limit、read-only rootfs、cap-drop ALL）；`CODE_EXECUTION_BACKEND` 设置切换。**已构建镜像并真机验证 8 项**（正常执行/白名单导入/os 拦截/gadget 链拦截/open 拦截/socket 拦截/超时 kill/双测试模式）——因 Docker Hub 直连受限使用了 DaoCloud 镜像源拉取基础镜像
-  - ✅ **P3-2 Celery 完成**：`config/celery.py` + `config/__init__.py` 经典接线（懒配置 + worker 信号里 django.setup + autodiscover，避免设置加载期的模型导入循环）；训练判分走 `grade_submission_task`（无 broker 时 eager 内联 = 零行为变化；有 broker 时后台判分）；无 Celery 安装时优雅降级同步；已装 celery 5.6.3 + redis 8.1.0，**eager 端到端验证通过**（判分→passed→10 分）
-  - ✅ **P3-5 视频生成完成**：`script_validator.py`（AST 校验：禁 import/call、必须 Scene 子类、长度上限）；`manim_engine.py`（Manim CLI 子进程渲染 + 超时 + 输出归档到 media/videos）；VideoAgent 重写（代码围栏正则提取、`generate_video_script` 对齐 README）；新增 `generate_video_script` 管理命令（生成→校验→可选渲染→存 Video 记录）。**真实渲染验证通过**（低质量 4.7s 产出 mp4）；6 个测试（渲染输出隔离到临时目录）
-  - ✅ **AI 跟踪与成本控制**：新增 `AIGenerationHistory` 模型 + 迁移（prompt/response/tokens/耗时/估算成本）；BaseAgent 与聊天服务全量记录；`AI_COST_LIMIT_DAILY` 每日限额真正生效（`daily_cost_exceeded` 拦截）；`AI_CACHE_ENABLED` 真正生效（相同 prompt+model 24h 内命中缓存）；5 个测试
-  - ✅ **单元格版本恢复**：`restore_cell_version` 端点（instructor 权限、恢复 cell_type+data、恢复前快照使恢复本身可撤销）+ 测试
-  - ✅ **命令补全**：`export_notebook`（json/md 导出）、`test_ai_agents`（连通性探测）、`batch_generate_content`（课程批量生成练习+考试草稿）
-  - ✅ **65 个测试全部通过**（pytest + manage.py test 双通道）
-- **2026-09-16**：P3 证书系统完成
-  - ✅ **证书 PDF 生成**（P3-4）：新增 `apps/examination/certificates.py`（reportlab + 内置 STSong-Light CID 中文字体，无需外部字体文件）；`certificate_download` 视图惰性生成/复用证书 PDF（仅通过考试的提交可下载，未通过 403 提示页）；新增公开验证页 `certificate_verify`（验证码查询学员/考试/成绩/颁发时间）；结果页「下载证书」按钮接线 + 验证码展示；已安装 reportlab 5.0.1
-  - ✅ **考试模块测试**：`apps/examination/tests.py` 从空壳变为 6 个真实测试（判断题 accessor 回归 + 证书下载/验证/失败拒绝/复用幂等），**全套 52 个测试 pytest 通过**
-- **2026-09-16**：P2 收尾 + P3 AI Agent 接线
-  - ✅ **P2-1 完成**：新增 `pytest.ini` + 根目录 `conftest.py`（`django.setup()`），`pytest` 命令真实可用（CLAUDE.md 承诺的工作流恢复），**46 个测试 pytest 全通过**；`manage.py test` 同样可用
-  - ✅ **P2-2 完成**：base.html 移除从未使用的 HTMX 与 CodeMirror CDN 引入（v5 风格脚本对 v6 无效）；requirements.txt 清理未用依赖（allauth/markdownx/jupyterlab/locust/docker SDK）并对齐实际环境版本（Django 5.2.8 / anthropic 0.75.0，未实现部分加注释标注）；删除孤立的 MARKDOWNX 配置
-  - ✅ **P2-4 完成**：训练提交、考试交卷/保存答案的错误响应按 DEBUG 开关脱敏 + 日志记录
-  - ✅ **P2-8 补完**：`video_cell` 接受 `manim_generated`（编辑器选项与校验枚举对齐，Manim 视频单元格保存不再必失败）；考试 `save_answer` 校验 answer_data 形状与 100KB 上限；`submit_solution` 提前拒绝超长代码；`ExerciseListView` 加登录要求 + 难度按 beginner→intermediate→advanced 排序（Case/When 注解）；`TIME_ZONE` 改 `Asia/Shanghai`、`LANGUAGE_CODE` 改 `zh-hans`
-  - ✅ **P3 起步——AI Agent 接线**：
-    - `apps/ai_agents` 注册为 Django app（新增 apps.py）
-    - 新增 3 个管理命令：`generate_lesson`（可 `--notebook/--section` 用共享解析器取真实素材接地）、`generate_exercises`（函数式测试用例 + 提示）、`generate_exam`（**保存为草稿**，符合"考题必须人工审核"原则）
-    - 修复 `TrainingAgent` 提示词两个 bug：f-string 单花括号（Python ≤3.11 语法错误、3.12+ 被当表达式求值）与测试用例格式错配（`expected_output` → 函数式 `expected`）
-    - **作文 AI 评分接入**：交卷时简答题由 `ExaminationAgent.evaluate_essay_answer` 评分（未配置 API key 时自动保持 `needs_review` 人工审核）
-- **2026-09-16**：完成剩余 P1 主体 + 多项 P2
-  - ✅ **P1-4 已修复**：训练积分防刷——同一 (student, exercise) 首次通过才加分/计完成数，重复提交只更新记录不重复奖励；判分/统计更新走 `transaction.atomic` + `select_for_update` + `F()` 表达式（并发不丢计数）；提示扣分统一按实际 `points_penalty` 累加（不再硬编码 ×2）；`view_hint` 扣分改原子 `F()` + `Greatest(...,0)` 防负分
-  - ✅ **P1-7 已修复**：wsgi/asgi 指向 `config.settings.production`；production 强制校验 SECRET_KEY（占位符直接报错）；自动创建 `logs/` 目录；Sentry `send_default_pii=False`；`LOGIN_REDIRECT_URL` 修正为 `/accounts/dashboard/`；development 移除 `'*'` ALLOWED_HOSTS 与死 CORS 配置；`.env.example` 补充 `ANTHROPIC_BASE_URL`
-  - ✅ **P1-8 部分修复**（Agent 仍未接线，但基础设施就绪）：`BaseAgent` 尊重 `ANTHROPIC_API_BASE_URL`（代理端点不再鉴权失败）、`temperature=0`/`max_tokens=0` 不再被 `or` 吞掉、`generate_json` 用正则提取首个 `{...}` 块（前言/围栏不再解析失败）、APIError 不再包装成裸 Exception
-  - ✅ **P1-9 已修复**：`course_detail` 模板 O(L²) 行扫描 → 视图预计算 `chapters_data`（章节→课程单元→进度标志），配合 prefetch 一次加载；模板重写为遍历预计算结构
-  - ✅ **P2-5 已修复**：Course/Exercise slug 空值兜底 + 同名自动加序号；Lesson slug 空值兜底（中文标题不再 500）
-  - ✅ **P2-6 已修复**：`Lesson.get_previous()/get_next()` 实现（上一课/下一课导航恢复）、`LessonProgress.completion_percentage` 属性（进度条恢复，按已执行代码单元格占比）、`CourseDetailView` 传入 `can_edit`（编辑按钮恢复）
-  - ✅ **P2-7 部分修复**：考试列表 attempt 计数改单次聚合；答题页/成绩页 `get_specific_question` 四个 OneToOne 全部 prefetch；训练提交历史补 `select_related('exercise')`；`Enrollment.completed_at` 在 100% 完成时自动设置；`track_cell_execution` 改 `select_for_update` 原子读改写
-  - ✅ 修复 `verify_features.py`（补上 `django.setup()`，可直接运行）
-  - ✅ **回归测试**：新增 6 个（防刷 2、slug/导航/进度 4），共 **45 个测试全部通过**；课程详情/考试列表页冒烟渲染正常
-- **2026-09-16**：完成第 1 阶段（安全止血）+ 第 2 阶段（核心功能修复）主体
-  - ✅ **P0-1/2 已修复**：执行器整体重写为 subprocess 隔离（`python -I` 子进程）+ 强制超时（kill）+ 严格 builtins 白名单（无 `__import__`/`open`/`eval`/`type`/`getattr`，白名单导入 math/random 等）+ AST 禁止下划线属性访问（封堵 `().__class__.__mro__` 类 gadget 链）；预留 RestrictedPython 可选加固层（装上即自动生效）。已验证：import os 被拒、gadget 链被拒、open 被拒、死循环 3 秒被杀、双测试模式正常。**遗留限制**：子进程仍是同一 OS 用户（Docker 为终态）
-  - ✅ **P0-3 已修复**：`cells_json|safe` → `json_script`；新增 `escapejs_tick` 过滤器（转义反引号与 `${`）；marked 输出过 DOMPurify（cdnjs 3.1.6）；无 marked 时回退为纯文本转义（不再返回原始 markdown）；聊天界面 `innerHTML` 前统一 `escapeHtml()`（用户消息、AI 回复、推荐资源字段）
-  - ✅ **P0-4 已修复**：注册强制 `user_type='student'`（前端移除 Instructor 选项 + 后端白名单）；接入 `validate_password()`（4 个配置好的 validator 生效）
-  - ✅ **P0-5 已修复**：登录 `next` 参数经 `url_has_allowed_host_and_scheme` 校验；logout 改为 POST-only（base.html 改为表单按钮）
-  - ✅ **P0-12 已修复**：`LessonDetailView` 过滤草稿（instructor/staff 可见）、`LessonEditView` 增加 `UserPassesTestMixin`、`execute_cell` 要求已选课（或 instructor/staff）、`ExamDetailView`/`TakeExamView` 过滤未发布考试、`CourseDetailView` 过滤未发布课程
-  - ✅ **P0-8/9/10 已修复**：训练判分读取正确键（`test_results`/`passed_tests`/`total_tests`）+ `tests_total > 0` 守卫（不再 0==0 恒通过）；考试代码题读取 `passed_tests`（不再恒 0 分）；`truefalseavequestion` 拼写修复为显式 accessor 映射
-  - ✅ **P0-11 已修复**：单元格插入/删除/重排全部改为「逐行更新」或「两阶段（先 +1,000,000 再归位）」，交换相邻单元格不再撞唯一约束；重排接口校验提交列表是完整排列；`create_cell` 校验 `cell_type` 合法
-  - ✅ **P1-1 已修复**：`StudentExam.remaining_seconds()`/`is_timed_out()` 服务端计时（基于 start_time）；`save_answer` 超时拒绝；`take` 页时间来自服务端计算
-  - ✅ **P1-2 已修复**：`submit_exam` 整体 `transaction.atomic()` + `select_for_update()`——双击不会重复判分、判分异常回滚不会把学生锁死；`student_profile` 缺失不再 500；`start_exam` 加行锁防 attempt_number 竞态
-  - ✅ **P1-3 已修复**：`execute_cell` 不再把学生执行结果写入共享单元格（执行结果只回传前端）
-  - ✅ **P1-5 已修复**：考试抽题改用局部 `random.Random(seed)`，不再污染进程全局随机状态
-  - ✅ **P2-4 部分修复**：学习 app 全部 API 错误经 `_error_response` 统一脱敏（DEBUG 下才显示详情）+ 服务端日志记录
-  - ✅ **回归测试**：新增 28 个测试（执行器 12、账户 4、学习 6、训练 3、聊天 3），加上聊天已有 11 个共 **39 个测试全部通过**；模板冒烟验证（json_script / DOMPurify / logout 表单渲染正常、403 权限生效）
-- **2026-09-16**：完成项目内 AI 工具调用能力（P3-0）
-  - ✅ 新增 `apps/chat/notebook_tools.py`：3 个 Anthropic tool-use 工具（列出资料/结构摘要/读取节内容），白名单校验文件名、结果截断、剔除噪音单元格
-  - ✅ 聊天助手 `ChatAIService` 改为工具循环调用（最多 3 轮），系统提示词不再发送服务器绝对路径（**P0-7 部分修复**）
-  - ✅ 聊天历史改为取最近 20 条（**P1-6 修复**）；AI 异常信息按 DEBUG 开关脱敏（**P2-4 部分修复**）
-  - ✅ `apps/chat/tests.py` 从空壳改为真实测试（工具执行器 + mock 客户端工具循环）
-- **2026-09-16**：完成 notebook 素材接入层
-  - ✅ 新增共享解析器 `apps/core/notebook_parser.py`（纯标准库，章节/小节/噪音识别，digest/json/cells 输出，已用真实 notebook 端到端验证）
-  - ✅ 新增 Claude Code skill `.claude/skills/notebook-reader/`（注意：`.claude/` 在 .gitignore 中，skill 目前仅本地生效，如需团队共享需调整 .gitignore）
-  - ✅ **P0-6 已修复**：`import_notebook` / `load_notebook_data` 不再硬编码密码（改为 `--instructor-password`/`--password` 参数或随机生成并打印一次）
-  - ✅ **P2-8 部分修复**：两个导入命令改为共用解析器，消除重复的输出提取/章节检测逻辑；`import_notebook` 重跑改为先清空再导入（修复重复 order 的 IntegrityError）；节检测从写死的 `1.x` 通用化为任意 `X.Y`；修复 `load_notebook_data` 的 `Classlib` 路径大小写（Windows 下碰巧可用，Linux 下会找不到文件）
+## 5. 技术债登记表
+
+> 格式：编号 ｜ 位置 ｜ 债务 ｜ 优先级 ｜ 建议处理
+
+| # | 位置 | 债务 | 优先级 | 处理 |
+|---|------|------|--------|------|
+| T1 | `examination/views.py::submit_exam` 前端 | 交卷前未 flush 防抖保存（最后 2 秒答案丢失） | P1 | 2.4 |
+| T2 | `apps/ai_agents/admin.py`（不存在） | AI 调用记录无管理界面 | P1 | 2.1 |
+| T3 | `jupyter_kernel.py` 注册表 | 无按用户内核配额，LRU 可被单用户挤占 | P1 | 3.3 |
+| T4 | `accounts/views.py::login_view` | 登录无限流（暴力破解面） | P1 | 1.1 |
+| T5 | 各 AI 生成端点 | 生成类请求无限流 | P1 | 1.2 |
+| T6 | `examination` admin 评阅 | 简答评阅后总分不重算 | P2 | 2.5 |
+| T7 | `ExamResultsView` | `show_results_immediately` 未生效 | P2 | 2.5 |
+| T8 | `exam_interface.html` | 交卷丢最后 2 秒输入 | P1 | T1 同源 |
+| T9 | `ExerciseDetailView` 模板 | `hints.count` 等剩余 N+1 | P2 | 3.1 |
+| T10 | `LessonProgress.time_spent_seconds` | 从未写入，界面恒 0 | P3 | 3.2 |
+| T11 | `CellVersion` | 版本快照无恢复 UI（API 已就绪） | P2 | 4.1 |
+| T12 | `learning/models.py::Video` | 孤儿模型（视频走 Cell.data） | P3 | 4.1 |
+| T13 | `learning/models.py::Cell.execute()` | 无调用方的旧执行路径（共享单元格写入语义） | P3 | 4.1 |
+| T14 | 训练无编辑/删除界面 | 练习只能创建/AI 改 | P2 | 4.2 |
+| T15 | `generate_exam` | 整卷单次 JSON 生成（推理模型不稳） | P2 | 4.3 |
+| T16 | 简答题评阅 | 教师无评阅界面（仅 admin） | P2 | 4.3 |
+| T17 | `chat/ai_service.py` | 无流式、max_tokens 固定 2000、输入无长度限制 | P2/P3 | 4.4 |
+| T18 | `_extract_suggestions` | 文件名子串匹配推荐 | P3 | 4.4 |
+| T19 | CLAUDE.md 承诺模型 | `AIGenerationRequest`/`PromptTemplate`/`ContentValidation`/`ManimScript`/`VideoRenderJob` 不存在 | P2 | 4.5（落地或从文档删除承诺） |
+| T20 | `ai_config` | 无模型回退链 | P1 | 2.2 |
+| T21 | 视频 | 无缩略图、无清理命令、渲染未异步 | P2/P3 | 4.6 |
+| T22 | `export_notebook` | 无 PDF/ipynb 格式（CLAUDE.md 承诺） | P3 | 4.1 |
+| T23 | UI 中英混杂 | 无 i18n 规划 | P3 | 单独评估 |
+| T24 | `config/urls.py` 开发静态服务 | `static()` 依赖 settings 内部常量 | P3 | 微调 |
+| T25 | 无 CI 流水线 | 测试/漏洞扫描靠手动 | P2 | 5.6 |
+| T26 | 无覆盖率基线 | 100 测试但无 coverage 配置与阈值 | P2 | 5.5 |
+| T27 | 无 lint 配置 | flake8/ruff 未配置（README 提到 flake8 但未装） | P2 | 5.5 |
+| T28 | `.env` SECRET_KEY 占位符 | 开发环境弱密钥 | P1 | 1.3 |
+| T29 | 部署手册缺备份/恢复 | 无数据备份方案 | P2 | 6.2 |
+| T30 | 无全栈 compose | 仅沙箱/内核两个镜像，无 app+db+redis+celery 编排 | P2 | 6.1 |
+| T31 | AI 模型选择受系统环境变量干扰 | 此前 `AI_MODEL` 系统变量覆盖 `.env` 造成困惑 | P1 | 1.3（文档化优先级规则） |
+
+---
+
+## 6. 工程质量与部署
+
+### 6.1 Docker Compose 全栈（P2）
+- 现状：只有 `docker/sandbox`、`docker/kernel` 两个执行镜像。
+- 方案：`docker-compose.yml`（web + celery worker + redis + postgres + 可选内核镜像），开发与生产两套 profile；README/部署手册补启动步骤。
+
+### 6.2 备份与恢复（P2）
+- 方案：PostgreSQL 定时 dump + `media/`（证书/视频）同步；恢复演练步骤写入部署手册。
+
+### 6.3 配置即代码（P3）
+- 方案：`.env.example` 与部署手册保持同步（已建立习惯）；生产部署脚本（幂等）入 `scripts/`。
+
+### 6.4 可观测性（P2）
+- Sentry 已可选接线；补：请求耗时日志（中间件，DEBUG 外仅采样）、AI 失败率看板（2.1 的延伸）、Celery 任务失败告警。
+
+### 6.5 代码质量门禁（P2）
+- 方案：`ruff`（lint+format 检查）+ `pytest-cov`（阈值：核心模块 apps/code_runner、apps/learning、apps/training、apps/examination ≥80%）+ `pre-commit` 配置。
+
+### 6.6 CI 流水线（P2）
+- 方案：GitHub Actions——push/PR 触发：install → `ruff check` → `pytest`（跳过 Manim 渲染与 Docker 依赖的用例，加 pytest marker `@pytest.mark.slow`）→ `pip-audit`。
+
+---
+
+## 7. 执行机制（后续优化工作如何做）
+
+1. **冲刺选择**：从 P1 开始（T1-T5、T20、T28、T31），每轮 3-5 个相关条目（如"考试可靠性冲刺"= T1/T6/T7/T8）。
+2. **验收标准（每个条目）**：
+   - 修复类：附回归测试（能写测试的场景必须写）；涉及模板 JS 的改动做「渲染脚本 → node --check」验证；
+   - 功能类：测试 + 用户/程序员手册对应章节更新 + CHANGELOG 记录；
+   - 安全类：参考既有模式（沙箱逃逸测试、权限 403 测试）。
+3. **提交纪律**：语义化 commit（fix/feat/security/docs 分开），引用本表编号（如 `fix(T4): 登录限流`）。
+4. **文档同步**：完成冲刺后更新本文件对应条目为 ✅ + 文末「执行记录」一行；改动公开行为同步 `docs/USER_MANUAL.md`、`docs/DEVELOPER_MANUAL.md`、`CLAUDE.md`。
+5. **待办未完成项**：本轮已写完待验证/提交的（4.2 AI 修改按钮、4.3 考试题目 AI 修改 + `validate_exam`）优先补测提交。
+
+---
+
+## 8. 历史里程碑（自 v1.0 审计以来）
+
+| 里程碑 | 内容摘要 |
+|--------|---------|
+| 安全止血（P0） | 沙箱重写（subprocess/Docker）、XSS 修复、越权/开放重定向、权限体系、判分三 bug、单元格重排 |
+| 核心修复（P1） | 考试计时/原子提交、防刷积分、生产配置、Agent 基建、N+1 治理 |
+| 平台能力（P2/P3） | 真实 Jupyter 内核、多模型 AI、AI 工具调用、成本控制、证书、视频管线、Celery、教师工作台、内容生成 Skill 模式 |
+| 稳定性（深夜批） | 推理模型兼容层、两阶段生成、章节级 AI 填充、AI 修改能力（网页 + 命令） |
+
+---
+
+## 9. 执行记录
+
+> 格式：日期 ｜ 冲刺主题 ｜ 完成条目 ｜ 测试数
+
+- 2026-09-16 ｜ **AI 架构重写（DeepSeek Harness 模式）** ｜ 新增 HarnessCore（角色路由 planner/worker/grader + 回退链 + 兼容层 + 审计）、Skills 层（CourseSkill/ExerciseSkill/ExamSkill）、BaseAgent 薄适配、三个生成命令切到 Skills；真实落地验证（ExerciseSkill 一次通过 7/7 沙箱用例） ｜ 111
+- 2026-09-16 ｜ AI 修改能力（网页版） ｜ 习题详情「AI 修改」按钮（4.2）、考试管理页题目级 AI 修改（4.3）、`validate_exam` 命令（4.3）；抽公共模块 `apps/examination/question_ai.py` ｜ 107

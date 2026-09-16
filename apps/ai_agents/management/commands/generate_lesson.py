@@ -17,7 +17,6 @@ handed to the agent as source material.
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.accounts.models import User
-from apps.ai_agents.learning_agent import LearningAgent
 from apps.learning.models import Cell, Chapter, Course, Lesson
 
 
@@ -60,12 +59,20 @@ class Command(BaseCommand):
                     f'Using notebook "{options["notebook"]}" section "{section}" as source material'))
 
         self.stdout.write(f'Generating lesson: {topic} ({difficulty})...')
-        agent = LearningAgent()
-        if not agent.api_key:
+        from apps.ai_agents import ai_config
+        if not ai_config.is_configured():
             raise CommandError('ANTHROPIC_API_KEY is not configured — cannot generate content')
 
-        generated = agent.generate_lesson_content(topic, difficulty)
-        cells = generated.get('cells', [])
+        from apps.ai_agents.skills import CourseSkill
+        generated = CourseSkill().run(
+            topic, difficulty, chapter_count=1,
+            source_material=source_material, with_content=True)
+        chapters = generated.get('chapters', [])
+        cells = []
+        if chapters:
+            lessons = chapters[0].get('lessons', [])
+            if lessons:
+                cells = lessons[0].get('cells', [])
         if not cells:
             raise CommandError('The AI returned no lesson cells')
 

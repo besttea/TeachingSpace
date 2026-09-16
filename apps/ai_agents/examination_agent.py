@@ -75,8 +75,53 @@ class ExaminationAgent(BaseAgent):
         Include a mix of Multiple Choice, True/False, and at least one Coding question.
         Ensure questions test understanding, not just memorization.
         """
-        
-        return self.generate_json(prompt, system_prompt)
+
+        result = self.generate_json(prompt, system_prompt)
+        if isinstance(result, list):  # model dropped the {"questions": ...} wrapper
+            return {'questions': result}
+        return result
+
+    def modify_question(self, question, instruction):
+        """
+        Modify an existing exam question per a natural-language instruction.
+
+        Args:
+            question: dict with the current question (type, text, points,
+                explanation, plus type-specific fields: options/correct_answer,
+                starter_code/solution_code/test_cases, word_limit/rubric/
+                sample_answer, or correct_answer for true_false).
+            instruction: what to change, e.g. "把题干改得更口语化，选项 B 的
+                表述再清楚一些".
+
+        Returns the UPDATED question dict (same structure). The caller
+        re-validates code questions before applying.
+        """
+        import json
+
+        current = json.dumps(question, ensure_ascii=False, indent=2)
+        prompt = f"""
+        Current exam question:
+        {current}
+
+        Instructor instruction:
+        {instruction}
+
+        Return the UPDATED question as JSON with the SAME structure and the
+        SAME type. Rules:
+        1. Keep unchanged parts exactly as they are.
+        2. Apply the instruction precisely — do not redesign the question.
+        3. For code questions: if test cases change, the solution_code must
+           still pass ALL of them.
+        4. Keep the answer correct and unambiguous.
+        """
+
+        system_prompt = (
+            'You are an expert examiner maintaining an exam question bank. '
+            'Return JSON only.')
+        result = self.generate_json(prompt, system_prompt)
+        if isinstance(result, list):
+            result = result[0] if result else {}
+        return result
 
     def evaluate_essay_answer(self, question_text, student_answer, rubric, sample_answer):
         """

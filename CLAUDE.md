@@ -294,9 +294,18 @@ python manage.py optimize_cell_images --settings=config.settings.development
 - **Security measures**: Network disabled, memory limits, CPU quotas, timeout enforcement (planned for Docker mode)
 
 ### AI Agent Architecture
-- **Reasoning-model compatibility** (built into `BaseAgent.generate`): auto-retry without `temperature` when rejected; ThinkingBlocks skipped when extracting text; retry-without-temperature when a reasoning model burns the whole budget on thinking; clear error when no text at all. `generate_json` uses a robust `_extract_json` (fences / bare object sequences / missing wrappers) and accepts per-call `max_tokens`.
-- **Two-phase content generation** (`LearningAgent.generate_lesson_content`): tiny structure request (cell types+titles) → one short request per cell → markdown-splitting fallback. Use this pattern for long content with reasoning models (deepseek-flash/reasoner); short prompts keep them stable.
-- **Instructor AI flow**: course detail page (教师工作区) has per-chapter 「AI 生成本章」 (plans lessons when empty via `CourseDesignAgent.design_chapter_lessons`, then fills content per lesson) and per-lesson 「AI 生成/重新生成」 buttons; creation form has AI-assisted outline design; all generation auto-grounds in ClassLib material via `find_related_sections`.
+- **AI Harness**（`apps/ai_agents/harness.py`，DeepSeek-harness 模式，所有 AI 调用的唯一通道）：
+  - 角色→模型路由：`planner`（推理规划，默认 deepseek-reasoner）/ `worker`（内容生成，默认 deepseek-flash）/ `grader`（评分校验，默认随 provider）——由 `AI_PLANNER_MODEL` / `AI_WORKER_MODEL` / `AI_GRADER_MODEL` 配置；
+  - 每角色**回退链**（`AI_FALLBACK_MODELS`，逗号分隔）；单次失败自动切换下一模型；
+  - 内置推理模型兼容：temperature 拒绝重试、ThinkingBlock 跳过、思考耗尽预算去 temperature 重试、`_extract_json` 容错（围栏/裸对象序列/丢包装）、每次调用审计入库（`harness:<model>` 记入 AIGenerationHistory）。
+- **Skills 层**（`apps/ai_agents/skills/`，AI 落地的生产管道，DB-free、可测）：
+  - `CourseSkill`：大纲(planner) → 逐单元两阶段内容(worker) → Markdown 降级；素材接地（ClassLib `find_related_sections`）；
+  - `ExerciseSkill`：生成(worker) → **沙箱验证** → 失败注入反馈修复循环（≤2 次）→ 返回验证状态；
+  - `ExamSkill`：题型分布(planner) → 逐题短请求(worker) → 代码题沙箱验证。
+- **BaseAgent 是 harness 之上的薄适配层**：`generate/generate_json` 签名不变（新增 `role` 参数），既有 Agent（Learning/Training/Examination/CourseDesign/Video）与调用方零改动。
+- 管理命令（`generate_lesson`/`generate_exercises`/`generate_exam`）已切换到 Skills；教学台流程继续走 Agent（经 harness 自动获得角色路由与回退）。
+- **推理模型兼容**（`BaseAgent.generate`/harness 内置）：见上；两阶段内容生成是长内容（课程单元/整卷）的标准模式（`LearningAgent.generate_lesson_content` 与 `CourseSkill` 均实现）。
+- **Instructor AI flow**：课程详情页（教师工作区）有 per-chapter 「AI 生成本章」 (plans lessons when empty via `CourseDesignAgent.design_chapter_lessons`, then fills content per lesson) and per-lesson 「AI 生成/重新生成」 buttons; creation form has AI-assisted outline design; all generation auto-grounds in ClassLib material via `find_related_sections`.
 - **Base Agent Class**: `apps/ai_agents/base_agent.py` - Common functionality for all AI agents
   - API client management (Anthropic Claude)
   - Error handling and retry logic

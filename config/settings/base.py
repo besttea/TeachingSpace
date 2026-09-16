@@ -219,6 +219,15 @@ AI_PROVIDER = config('AI_PROVIDER', default='anthropic')
 # Optional global model override (applies to whichever provider is active)
 AI_MODEL = config('AI_MODEL', default='')
 
+# AI Harness role→model routing (DeepSeek-harness pattern):
+# planner = reasoning-heavy structure work, worker = bulk content,
+# grader = evaluation. Empty values fall back to the active provider model.
+AI_PLANNER_MODEL = config('AI_PLANNER_MODEL', default='deepseek-reasoner')
+AI_WORKER_MODEL = config('AI_WORKER_MODEL', default='')
+AI_GRADER_MODEL = config('AI_GRADER_MODEL', default='')
+# Comma-separated fallback chain tried when a role's model fails.
+AI_FALLBACK_MODELS = config('AI_FALLBACK_MODELS', default='')
+
 # Legacy aliases (kept so existing call sites keep working)
 ANTHROPIC_API_KEY = AI_PROVIDERS['anthropic']['api_key']
 ANTHROPIC_MODEL = AI_PROVIDERS['anthropic']['default_model']

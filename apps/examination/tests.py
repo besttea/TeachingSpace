@@ -1,13 +1,17 @@
 """Tests for the examination app: true/false question accessor (P0-10)
 and the certificate flow (download / verification / failed attempts)."""
 
+import json
 import tempfile
 
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from apps.accounts.models import User
-from .models import Certificate, Exam, Question, StudentExam, TrueFalseQuestion
+from .models import (
+    Certificate, CodeQuestion, Exam, MultipleChoiceQuestion, Question,
+    StudentExam, TrueFalseQuestion,
+)
 
 _MEDIA_TMP = tempfile.mkdtemp(prefix='cert_test_')
 
@@ -100,3 +104,85 @@ class CertificateTests(TestCase):
         self.assertEqual(second.status_code, 200)
         # one certificate, one stable verification code
         self.assertEqual(Certificate.objects.filter(student_exam=attempt).count(), 1)
+
+
+class QuestionAIModifyAndValidateTests(TestCase):
+    """AI question modification endpoint + validate_exam command."""
+
+    def setUp(self):
+        from unittest import mock as _mock
+        self.instructor = User.objects.create_user(
+            username='exam_mod_teacher', email='emt@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.other = User.objects.create_user(
+            username='exam_mod_other', email='emo@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.exam = Exam.objects.create(
+            title='修改测试', description='x', duration_minutes=30,
+            passing_score=60, max_attempts=3, is_published=False,
+            created_by=self.instructor)
+        self.question = Question.objects.create(
+            exam=self.exam, question_type='multiple_choice',
+            question_text='旧题干', points=5, order=0)
+        MultipleChoiceQuestion.objects.create(
+            question=self.question,
+            options={'A': '1', 'B': '2'}, correct_answer='A')
+
+        patcher = _mock.patch('apps.ai_agents.examination_agent.ExaminationAgent.modify_question')
+        self.mock_modify = patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher2 = _mock.patch('apps.ai_agents.ai_config.is_configured', return_value=True)
+        patcher2.start()
+        self.addCleanup(patcher2.stop)
+
+    def test_preview_and_apply(self):
+        self.mock_modify.return_value = {
+            'type': 'multiple_choice', 'text': '新题干', 'points': 5,
+            'options': {'A': '1', 'B': '2'}, 'correct_answer': 'A',
+        }
+        self.client.force_login(self.instructor)
+        url = reverse('examination:question-ai-modify', args=[self.question.id])
+        response = self.client.post(
+            url, data=json.dumps({'instruction': '更口语化', 'apply': False}),
+            content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(response.json()['applied'])
+        self.assertIn('新题干', response.json()['preview']['text'])
+
+        response = self.client.post(
+            url, data=json.dumps({'instruction': '更口语化', 'apply': True}),
+            content_type='application/json')
+        self.assertTrue(response.json()['applied'])
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.question_text, '新题干')
+
+    def test_non_creator_forbidden(self):
+        self.client.force_login(self.other)
+        response = self.client.post(
+            reverse('examination:question-ai-modify', args=[self.question.id]),
+            data=json.dumps({'instruction': 'x', 'apply': False}),
+            content_type='application/json')
+        self.assertEqual(response.status_code, 403)
+
+    def test_validate_exam_command(self):
+        from django.core.management import call_command
+        from io import StringIO
+
+        code_q = Question.objects.create(
+            exam=self.exam, question_type='code', question_text='写 add', points=10, order=1)
+        CodeQuestion.objects.create(
+            question=code_q,
+            solution_code='def add(a, b):\n    return a + b',
+            test_cases=[{'input': 'add(1, 2)', 'expected': 3}])
+
+        # valid exam → no exception
+        out = StringIO()
+        call_command('validate_exam', id=self.exam.id, stdout=out)
+        self.assertIn('全部通过', out.getvalue())
+
+        # broken solution → CommandError
+        code_q.codequestion.solution_code = 'def add(a, b):\n    return 0'
+        code_q.codequestion.save()
+        from django.core.management.base import CommandError
+        with self.assertRaises(CommandError):
+            call_command('validate_exam', id=self.exam.id)

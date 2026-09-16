@@ -1,6 +1,7 @@
 """
-Generate an exam with the Examination Agent and save it (as DRAFT for
-instructor review — critical content must be approved before publishing).
+Generate an exam through the ExamSkill (harness pipeline: type distribution
+→ per-question generation → code questions sandbox-validated) and save it
+as DRAFT — instructor review required before publishing.
 
 Usage:
     python manage.py generate_exam --course python-basics --question-count 20 \
@@ -10,7 +11,6 @@ Usage:
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.accounts.models import User
-from apps.ai_agents.examination_agent import ExaminationAgent
 from apps.examination.models import (
     CodeQuestion, EssayQuestion, Exam, MultipleChoiceQuestion,
     Question, TrueFalseQuestion,
@@ -41,17 +41,22 @@ class Command(BaseCommand):
             raise CommandError(f'Course not found: {options["course"]}')
 
         creator = self._resolve_creator(options)
-        agent = ExaminationAgent()
-        if not agent.api_key:
-            raise CommandError('ANTHROPIC_API_KEY is not configured — cannot generate content')
+        from apps.ai_agents import ai_config
+        if not ai_config.is_configured():
+            raise CommandError('AI API key is not configured — cannot generate content')
 
         self.stdout.write(
             f'Generating {options["question_count"]} questions on "{course.title}"...')
-        data = agent.generate_exam_questions(
+        from apps.ai_agents.skills import ExamSkill
+
+        skill = ExamSkill()
+        result = skill.run(
             course.title, options['difficulty'], options['question_count'])
-        questions = data.get('questions', [])
+        questions = result.get('questions', [])
         if not questions:
             raise CommandError('The AI returned no questions')
+        self.stdout.write(self.style.SUCCESS(
+            f'代码题沙箱验证: {result.get("code_validated", "0/0")}'))
 
         exam = Exam.objects.create(
             title=options['title'] or f'{course.title} 测验',
