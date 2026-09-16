@@ -608,3 +608,31 @@ class CourseListCacheTests(TestCase):
         self.client.get(reverse('learning:course-list'))  # populate cache
         response = self.client.get(reverse('learning:course-list') + '?search=甲')
         self.assertContains(response, '缓存课程甲')
+
+
+
+
+class RosterCsvExportTests(TestCase):
+    """Roster CSV export (Excel-friendly UTF-8 BOM)."""
+
+    def test_csv_export(self):
+        instructor = User.objects.create_user(
+            username='csv_teacher', email='csvt@example.com',
+            password='StrongPass123!', user_type='instructor')
+        student = User.objects.create_user(
+            username='csv_student', email='csvs@example.com',
+            password='StrongPass123!', user_type='student')
+        course = Course.objects.create(
+            title='CSV', description='x', instructor=instructor)
+        Enrollment.objects.create(student=student, course=course)
+
+        self.client.force_login(instructor)
+        response = self.client.get(
+            reverse('learning:instructor-student-roster',
+                    args=[course.slug]) + '?export=csv')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'text/csv; charset=utf-8')
+        self.assertIn('attachment', response['Content-Disposition'])
+        content = response.content.decode('utf-8-sig')
+        self.assertIn('csv_student', content)
+        self.assertIn('用户名', content)
