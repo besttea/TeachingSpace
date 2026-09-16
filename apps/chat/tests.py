@@ -225,3 +225,40 @@ class ThinkingBlockCompatibilityTests(TestCase):
         self.assertEqual(types, {'thinking', 'tool_use'})
         self.assertNotIn('id', next(
             c for c in assistant_turn['content'] if c.get('type') == 'thinking'))
+
+
+class HistorySummarizationTests(TestCase):
+    """Long conversations summarize older turns instead of dropping context."""
+
+    def test_older_turns_summarized_into_system_prompt(self):
+        from unittest import mock as _mock
+
+        history = [
+            {'role': 'user', 'content': f'q{i}'} for i in range(25)
+        ]
+        fake = _FakeClient([
+            SimpleNamespace(content=[_text_block('回答')]),
+        ])
+        with _mock.patch('apps.ai_agents.harness.HarnessCore.call',
+                         return_value='要点：用户在学习列表与字典。') as summarize:
+            service = ChatAIService(client=fake)
+            result = service.generate_response('继续问', history)
+            self.assertTrue(result['success'])
+            # summarization requested once for the older 5 messages
+            self.assertTrue(summarize.called)
+            # only the recent 20 + current message were sent to the model
+            sent = fake.messages.calls[0]['messages']
+            self.assertEqual(len(sent), 21)
+            # the summary landed in the system prompt
+            self.assertIn('更早对话的摘要', fake.messages.calls[0]['system'])
+
+    def test_short_conversation_not_summarized(self):
+        from unittest import mock as _mock
+
+        fake = _FakeClient([
+            SimpleNamespace(content=[_text_block('回答')]),
+        ])
+        with _mock.patch('apps.ai_agents.harness.HarnessCore.call') as summarize:
+            service = ChatAIService(client=fake)
+            service.generate_response('hi', [{'role': 'user', 'content': 'x'}])
+            self.assertFalse(summarize.called)

@@ -127,9 +127,21 @@ class ChatAIService:
                     'error': 'daily cost limit reached',
                 }
 
+            # Long-conversation memory: beyond the recent 20 messages, older
+            # turns are summarized once (cached) and injected into the system
+            # prompt, so context is preserved instead of silently dropped.
+            recent = conversation_history
+            system_prompt = self._build_system_prompt()
+            if len(conversation_history) > 20:
+                older = conversation_history[:-20]
+                recent = conversation_history[-20:]
+                summary = self._summarize_history(older)
+                if summary:
+                    system_prompt += f'\n\n[更早对话的摘要]\n{summary}'
+
             # Build message history
             messages = []
-            for msg in conversation_history:
+            for msg in recent:
                 messages.append({
                     "role": msg['role'],
                     "content": msg['content']
@@ -148,7 +160,7 @@ class ChatAIService:
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=2000,
-                    system=self._build_system_prompt(),
+                    system=system_prompt,
                     messages=messages,
                     tools=TOOL_SCHEMAS,
                 )
@@ -259,6 +271,42 @@ class ChatAIService:
             'suggested_resources': suggestions,
             'success': True
         }
+
+    def _summarize_history(self, older_messages: List[Dict[str, str]]) -> str:
+        """Summarize conversation turns beyond the recent window.
+
+        One harness call per conversation state (cached by content hash),
+        so repeated messages in the same long session don't re-spend tokens.
+        """
+        import hashlib
+
+        from django.core.cache import cache
+
+        digest = hashlib.sha256(
+            json.dumps(older_messages, ensure_ascii=False).encode('utf-8')
+        ).hexdigest()
+        cache_key = f'chat_summary:{digest}'
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        transcript = '\n'.join(
+            f'{m["role"]}: {str(m["content"])[:200]}' for m in older_messages
+        )
+        try:
+            from apps.ai_agents.harness import HarnessCore
+            summary = HarnessCore.call(
+                f'将以下对话历史压缩为 3 条以内的要点（中文）：\n{transcript}',
+                role='worker',
+                system_prompt='你是对话记忆压缩器。只输出要点，不输出其他内容。',
+                temperature=0.2,
+                max_tokens=300,
+            ).strip()
+        except Exception:
+            logger.warning('history summarization failed — falling back to truncation')
+            return ''
+        cache.set(cache_key, summary, 86400)
+        return summary
 
     def _extract_suggestions(self, response_text: str, resources: List[Dict]) -> List[Dict]:
         """Extract resource suggestions from the AI response.

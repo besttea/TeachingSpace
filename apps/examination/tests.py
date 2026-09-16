@@ -441,3 +441,89 @@ class ExamSubmissionIntegrationTests(TestCase):
         data = response.json()
         self.assertTrue(data['success'])
         self.assertEqual(data['score'], 0)
+
+
+class QuestionBankImportExportTests(TestCase):
+    """Round-trip: export exam questions to JSON, import into another exam."""
+
+    def setUp(self):
+        from django.core.management import call_command
+        from io import StringIO
+
+        self.call_command = call_command
+        self.out = StringIO
+
+    def test_round_trip(self):
+        instructor = User.objects.create_user(
+            username='bank_teacher', email='bkt@example.com',
+            password='StrongPass123!', user_type='instructor')
+        exam_a = Exam.objects.create(
+            title='题库A', description='x', duration_minutes=30,
+            passing_score=60, max_attempts=3, is_published=False,
+            created_by=instructor)
+        q = Question.objects.create(
+            exam=exam_a, question_type='multiple_choice',
+            question_text='1+1=?', points=5, order=0)
+        MultipleChoiceQuestion.objects.create(
+            question=q, options={'A': '1', 'B': '2', 'C': '3', 'D': '4'},
+            correct_answer='B', explanation='基础')
+        code_q = Question.objects.create(
+            exam=exam_a, question_type='code',
+            question_text='写 add', points=10, order=1)
+        CodeQuestion.objects.create(
+            question=code_q,
+            solution_code='def add(a, b):\n    return a + b',
+            test_cases=[{'input': 'add(1, 2)', 'expected': 3}])
+
+        exam_b = Exam.objects.create(
+            title='题库B', description='x', duration_minutes=30,
+            passing_score=60, max_attempts=3, is_published=False,
+            created_by=instructor)
+
+        import json as _json
+        import tempfile
+        import os
+
+        bank = tempfile.NamedTemporaryFile(
+            mode='w', suffix='.json', delete=False, encoding='utf-8')
+        bank.close()
+        self.call_command('export_exam_questions', exam_id=exam_a.id,
+                          output=bank.name, stdout=self.out())
+
+        self.call_command('import_exam_questions', exam_id=exam_b.id,
+                          file=bank.name, stdout=self.out())
+        os.unlink(bank.name)
+
+        self.assertEqual(exam_b.questions.count(), 2)
+        imported_mc = Question.objects.get(exam=exam_b, question_type='multiple_choice')
+        self.assertEqual(imported_mc.get_specific_question().correct_answer, 'B')
+        imported_code = Question.objects.get(exam=exam_b, question_type='code')
+        self.assertEqual(
+            imported_code.get_specific_question().test_cases,
+            [{'input': 'add(1, 2)', 'expected': 3}])
+
+    def test_import_rejects_broken_code_question(self):
+        import json as _json
+        import tempfile
+        import os
+
+        instructor = User.objects.create_user(
+            username='bank_teacher2', email='bkt2@example.com',
+            password='StrongPass123!', user_type='instructor')
+        exam = Exam.objects.create(
+            title='题库C', description='x', duration_minutes=30,
+            passing_score=60, max_attempts=3, is_published=False,
+            created_by=instructor)
+        bank = tempfile.NamedTemporaryFile(
+            mode='w', suffix='.json', delete=False, encoding='utf-8')
+        _json.dump({'questions': [{
+            'type': 'code', 'text': 'bad', 'points': 10,
+            'solution_code': 'def f():\n    return 0',
+            'test_cases': [{'input': 'f()', 'expected': 1}],
+        }]}, bank)
+        bank.close()
+
+        self.call_command('import_exam_questions', exam_id=exam.id,
+                          file=bank.name, stdout=self.out())
+        os.unlink(bank.name)
+        self.assertEqual(exam.questions.count(), 0)  # rejected by sandbox
