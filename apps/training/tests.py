@@ -154,3 +154,71 @@ class ExerciseAIModifyTests(TestCase):
         self.client.force_login(self.student)
         response = self._modify(apply=False)
         self.assertEqual(response.status_code, 403)
+
+
+class ExerciseEditDeleteTests(TestCase):
+    """T14: exercise edit form and delete with submission protection."""
+
+    def setUp(self):
+        self.instructor = User.objects.create_user(
+            username='edit_teacher', email='et@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.student = User.objects.create_user(
+            username='edit_student', email='es@example.com',
+            password='StrongPass123!', user_type='student')
+        self.exercise = Exercise.objects.create(
+            title='原题', description='d',
+            solution_code='def f():\n    return 1',
+            test_cases=[{'input': 'f()', 'expected': 1}],
+            created_by=self.instructor)
+        Hint.objects.create(exercise=self.exercise, content='h1', order=1,
+                            points_penalty=2)
+
+    def test_edit_updates_fields(self):
+        self.client.force_login(self.instructor)
+        response = self.client.post(
+            reverse('training:exercise-edit', args=[self.exercise.id]),
+            {'title': '改后题', 'description': 'd2', 'difficulty': 'intermediate',
+             'points': '15', 'starter_code': '', 'solution_code': 'def f():\n    return 2',
+             'test_cases': '[{"input": "f()", "expected": 2}]',
+             'hint_1': '新提示', 'hint_penalty_1': '3'})
+        self.assertEqual(response.status_code, 302)
+        self.exercise.refresh_from_db()
+        self.assertEqual(self.exercise.title, '改后题')
+        self.assertEqual(self.exercise.points, 15)
+        self.assertEqual(self.exercise.test_cases, [{'input': 'f()', 'expected': 2}])
+        self.assertEqual(self.exercise.hints.first().content, '新提示')
+        self.assertEqual(self.exercise.hints.count(), 1)
+
+    def test_edit_page_prefills(self):
+        self.client.force_login(self.instructor)
+        response = self.client.get(
+            reverse('training:exercise-edit', args=[self.exercise.id]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '原题')
+        self.assertContains(response, 'h1')
+
+    def test_delete_with_submissions_refused(self):
+        StudentProfile.objects.create(user=self.student)
+        Submission.objects.create(
+            exercise=self.exercise, student=self.student, code='x')
+        self.client.force_login(self.instructor)
+        response = self.client.post(
+            reverse('training:exercise-delete', args=[self.exercise.id]),
+            data=json.dumps({'force': '0'}), content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(Exercise.objects.filter(pk=self.exercise.id).exists())
+
+    def test_delete_force_works(self):
+        self.client.force_login(self.instructor)
+        response = self.client.post(
+            reverse('training:exercise-delete', args=[self.exercise.id]),
+            data=json.dumps({'force': '1'}), content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Exercise.objects.filter(pk=self.exercise.id).exists())
+
+    def test_student_forbidden(self):
+        self.client.force_login(self.student)
+        response = self.client.get(
+            reverse('training:exercise-edit', args=[self.exercise.id]))
+        self.assertEqual(response.status_code, 403)

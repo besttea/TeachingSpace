@@ -126,6 +126,12 @@
                         <i class="bi bi-clock-history"></i> History
                     </a>
                     {% if can_modify %}
+                    <a href="{% url 'training:exercise-edit' exercise.id %}" class="btn btn-outline-secondary ms-1">
+                        <i class="bi bi-pencil"></i> 编辑
+                    </a>
+                    <button class="btn btn-outline-danger ms-1" onclick="deleteExercise()">
+                        <i class="bi bi-trash"></i> 删除
+                    </button>
                     <button class="btn btn-outline-primary ms-1" id="aiModifyBtn"
                             onclick="aiModifyFlow()">
                         <i class="bi bi-stars"></i> AI 修改
@@ -417,6 +423,31 @@ function exerciseEditor() {
     function preserveStateAndReload() {
         sessionStorage.setItem('exerciseScrollPos', String(window.scrollY));
         location.reload();
+    }
+
+    // 删除练习（有提交历史时需二次确认）
+    async function deleteExercise() {
+        if (!confirm('确定删除此练习？此操作不可恢复。')) return;
+        let force = '0';
+        if (confirm('该练习如有学生提交历史，是否连同提交记录一起删除？\n（取消则仅在无提交历史时删除）')) {
+            force = '1';
+        }
+        try {
+            const response = await fetch(`/training/api/exercises/{{ exercise.id }}/delete/`, {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+                body: JSON.stringify({force: force})
+            });
+            const data = await response.json();
+            if (data.success) {
+                alert(data.message || '已删除');
+                window.location.href = '{% url 'training:exercise-list' %}';
+            } else {
+                alert(data.error || '删除失败');
+            }
+        } catch (e) {
+            alert('删除失败，请重试。');
+        }
     }
 
     // AI 修改流程（skill 模式：预览 → 确认 → 应用前沙箱验证）

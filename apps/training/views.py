@@ -218,6 +218,95 @@ def view_hint(request, hint_id):
 
 
 @login_required
+def exercise_edit(request, pk):
+    """Edit an existing exercise (instructor/staff) — reuses the create form."""
+    exercise = get_object_or_404(Exercise, pk=pk)
+    if not (request.user.is_staff or request.user.user_type == 'instructor'):
+        from django.http import HttpResponseForbidden
+        return HttpResponseForbidden('Only instructors can edit exercises')
+
+    if request.method == 'POST':
+        try:
+            import json as _json
+
+            title = (request.POST.get('title') or '').strip()
+            description = (request.POST.get('description') or '').strip()
+            if not title or not description:
+                messages.error(request, '标题与题目描述不能为空')
+                return redirect('training:exercise-edit', pk=exercise.pk)
+
+            try:
+                test_cases = _json.loads(request.POST.get('test_cases', '[]'))
+                if not isinstance(test_cases, list) or not test_cases:
+                    raise ValueError('test_cases 必须是非空 JSON 数组')
+            except (ValueError, _json.JSONDecodeError) as e:
+                messages.error(request, f'测试用例格式错误: {e}')
+                return redirect('training:exercise-edit', pk=exercise.pk)
+
+            exercise.title = title
+            exercise.description = description
+            exercise.difficulty = request.POST.get('difficulty', exercise.difficulty)
+            exercise.points = int(request.POST.get('points', exercise.points))
+            exercise.starter_code = request.POST.get('starter_code', '')
+            exercise.solution_code = request.POST.get('solution_code', '')
+            exercise.test_cases = test_cases
+            exercise.save()
+
+            exercise.hints.all().delete()
+            for i in range(1, 4):
+                hint_text = (request.POST.get(f'hint_{i}') or '').strip()
+                penalty = int(request.POST.get(f'hint_penalty_{i}', 2))
+                if hint_text:
+                    Hint.objects.create(
+                        exercise=exercise, content=hint_text, order=i,
+                        points_penalty=penalty)
+
+            messages.success(request, f'练习《{exercise.title}》已更新')
+            return redirect('training:exercise-detail', slug=exercise.slug)
+        except Exception as e:
+            messages.error(request, f'保存失败: {e}')
+            return redirect('training:exercise-edit', pk=exercise.pk)
+
+    hints = list(exercise.hints.all().order_by('order'))
+    import json as _json
+    context = {
+        'courses': Course.objects.filter(is_published=True),
+        'editing': True,
+        'exercise': exercise,
+        'hints_list': hints,
+        'hint_contents': {str(i + 1): (hints[i].content if i < len(hints) else '')
+                          for i in range(3)},
+        'hint_penalties': {str(i + 1): (hints[i].points_penalty if i < len(hints) else i + 2)
+                           for i in range(3)},
+        'test_cases_json': _json.dumps(exercise.test_cases, ensure_ascii=False),
+    }
+    return render(request, 'training/exercise_form.html', context)
+
+
+@login_required
+@require_http_methods(["POST"])
+def exercise_delete(request, pk):
+    """Delete an exercise. Refuses when submissions exist unless force=1."""
+    exercise = get_object_or_404(Exercise, pk=pk)
+    if not (request.user.is_staff or request.user.user_type == 'instructor'):
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+
+    data = json.loads(request.body or '{}')
+    force = str(data.get('force', '')) == '1'
+    submission_count = exercise.submissions.count()
+
+    if submission_count and not force:
+        return JsonResponse({
+            'success': False,
+            'error': f'该练习已有 {submission_count} 次提交记录。删除会连同学生提交历史一起移除——'
+                     f'如确认删除请带上 force=1。'
+        }, status=400)
+
+    exercise.delete()
+    return JsonResponse({'success': True, 'message': '练习已删除'})
+
+
+@login_required
 def exercise_create(request):
     """Create an exercise (instructor/staff) — title, code, test cases, hints."""
     if not (request.user.is_staff or request.user.user_type == 'instructor'):

@@ -7,6 +7,8 @@ urlpatterns = [
     # Exercise browsing
     path('exercises/', views.ExerciseListView.as_view(), name='exercise-list'),
     path('exercises/create/', views.exercise_create, name='exercise-create'),
+    path('exercises/<int:pk>/edit/', views.exercise_edit, name='exercise-edit'),
+    path('exercises/<int:pk>/delete/', views.exercise_delete, name='exercise-delete'),
     path('exercises/<slug:slug>/', views.ExerciseDetailView.as_view(), name='exercise-detail'),
 
     # Submission
