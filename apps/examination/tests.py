@@ -341,3 +341,103 @@ class QuestionEditTests(TestCase):
         response = self.client.get(
             reverse('examination:question-edit', args=[self.question.id]))
         self.assertEqual(response.status_code, 403)
+
+
+class ExamSubmissionIntegrationTests(TestCase):
+    """End-to-end: attempt → answers → submit → grading (real sandbox) → score."""
+
+    def setUp(self):
+        self.instructor = User.objects.create_user(
+            username='flow_teacher', email='flt@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.student = User.objects.create_user(
+            username='flow_student', email='fls@example.com',
+            password='StrongPass123!', user_type='student')
+        self.exam = Exam.objects.create(
+            title='全流程测试', description='x', duration_minutes=30,
+            passing_score=60, max_attempts=3, is_published=True,
+            created_by=self.instructor, show_results_immediately=True)
+
+        mc_q = Question.objects.create(
+            exam=self.exam, question_type='multiple_choice',
+            question_text='2+2=?', points=20, order=0)
+        MultipleChoiceQuestion.objects.create(
+            question=mc_q, options={'A': '3', 'B': '4', 'C': '5', 'D': '6'},
+            correct_answer='B')
+        self.mc_q = mc_q
+
+        code_q = Question.objects.create(
+            exam=self.exam, question_type='code',
+            question_text='写 add', points=80, order=1)
+        CodeQuestion.objects.create(
+            question=code_q,
+            solution_code='def add(a, b):\n    return a + b',
+            test_cases=[{'input': 'add(1, 2)', 'expected': 3}])
+        self.code_q = code_q
+
+    def _start_attempt(self):
+        self.client.force_login(self.student)
+        response = self.client.get(
+            reverse('examination:exam-start', args=[self.exam.id]))
+        self.assertEqual(response.status_code, 302)
+        attempt = StudentExam.objects.get(
+            student=self.student, exam=self.exam, is_submitted=False)
+        return attempt
+
+    def _save_answer(self, attempt, question, answer_data):
+        return self.client.post(
+            reverse('examination:save-answer'),
+            data=json.dumps({
+                'student_exam_id': attempt.id,
+                'question_id': question.id,
+                'answer_data': answer_data,
+            }), content_type='application/json')
+
+    def test_full_flow_grades_and_scores(self):
+        attempt = self._start_attempt()
+
+        self._save_answer(attempt, self.mc_q, {'selected': 'B'})
+        self._save_answer(attempt, self.code_q,
+                          {'code': 'def add(a, b):\n    return a + b'})
+
+        response = self.client.post(
+            reverse('examination:submit-exam'),
+            data=json.dumps({'student_exam_id': attempt.id}),
+            content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        data = response.json()
+        self.assertTrue(data['success'])
+        self.assertEqual(data['score'], 100)  # 20 (MC) + 80 (code, 1/1 tests)
+        self.assertTrue(data['is_passing'])
+
+        attempt.refresh_from_db()
+        self.assertTrue(attempt.is_submitted)
+        # code answer graded with the real sandbox
+        code_answer = ExamAnswer.objects.get(
+            student_exam=attempt, question=self.code_q)
+        self.assertEqual(code_answer.status, 'graded')
+        self.assertEqual(code_answer.points_awarded, 80)
+
+    def test_resubmit_blocked(self):
+        attempt = self._start_attempt()
+        self.client.post(
+            reverse('examination:submit-exam'),
+            data=json.dumps({'student_exam_id': attempt.id}),
+            content_type='application/json')
+        response = self.client.post(
+            reverse('examination:submit-exam'),
+            data=json.dumps({'student_exam_id': attempt.id}),
+            content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('已提交', response.json()['error'])
+
+    def test_wrong_code_solution_scores_zero(self):
+        attempt = self._start_attempt()
+        self._save_answer(attempt, self.code_q, {'code': 'def add(a, b):\n    return 0'})
+        response = self.client.post(
+            reverse('examination:submit-exam'),
+            data=json.dumps({'student_exam_id': attempt.id}),
+            content_type='application/json')
+        data = response.json()
+        self.assertTrue(data['success'])
+        self.assertEqual(data['score'], 0)
