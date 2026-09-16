@@ -189,3 +189,39 @@ class InputLimitAndSuggestionsTests(TestCase):
         suggestions = service._extract_suggestions(response_text, [])
         self.assertTrue(any('1.2' in s['title'] for s in suggestions))
         self.assertEqual(suggestions[0]['filename'], '第一课_基本数据结构.ipynb')
+
+
+class ThinkingBlockCompatibilityTests(TestCase):
+    """Reasoning models return ThinkingBlocks in the tool loop — they must
+    be replayed safely, never treated as tool_use (regression for the
+    'ThinkingBlock object has no attribute id' chat failure)."""
+
+    def test_tool_loop_survives_thinking_blocks(self):
+        def _thinking_block(text):
+            return SimpleNamespace(type='thinking', thinking=text)  # no .id!
+
+        fake = _FakeClient([
+            # Round 1: thinking + tool_use together (deepseek-flash behaviour)
+            SimpleNamespace(content=[
+                _thinking_block('考虑查询资料…'),
+                _tool_use_block('call_1', 'list_notebooks', {}),
+            ]),
+            # Round 2: thinking + final text
+            SimpleNamespace(content=[
+                _thinking_block('组织回答…'),
+                _text_block('资料中有《第一课_基本数据结构.ipynb》。'),
+            ]),
+        ])
+        service = ChatAIService(client=fake)
+        result = service.generate_response('有哪些学习资料？')
+
+        self.assertTrue(result['success'])
+        self.assertIn('第一课', result['response'])
+        # the assistant turn replay must include the thinking block correctly
+        second_call = fake.messages.calls[1]
+        assistant_turn = next(
+            m for m in second_call['messages'] if m['role'] == 'assistant')
+        types = {c.get('type') for c in assistant_turn['content']}
+        self.assertEqual(types, {'thinking', 'tool_use'})
+        self.assertNotIn('id', next(
+            c for c in assistant_turn['content'] if c.get('type') == 'thinking'))

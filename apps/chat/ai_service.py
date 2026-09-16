@@ -161,15 +161,25 @@ class ChatAIService:
                 if not tool_uses:
                     break
 
-                # Record the assistant turn (with its tool calls)…
+                # Record the assistant turn (with its tool calls). Thinking
+                # blocks (reasoning models) are replayed as-is — they carry
+                # no 'id' and must not be treated as tool_use.
+                assistant_content = []
+                for b in response.content:
+                    if b.type == 'text':
+                        assistant_content.append({"type": "text", "text": b.text})
+                    elif b.type == 'tool_use':
+                        assistant_content.append({
+                            "type": "tool_use",
+                            "id": b.id, "name": b.name, "input": b.input,
+                        })
+                    elif b.type == 'thinking':
+                        assistant_content.append({
+                            "type": "thinking", "thinking": b.thinking,
+                        })
                 messages.append({
                     "role": "assistant",
-                    "content": [
-                        {"type": "text", "text": b.text}
-                        if b.type == 'text' else
-                        {"type": "tool_use", "id": b.id, "name": b.name, "input": b.input}
-                        for b in response.content
-                    ]
+                    "content": assistant_content,
                 })
                 # …and the tool results as a user turn.
                 tool_results = []
