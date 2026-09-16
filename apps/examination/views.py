@@ -520,7 +520,73 @@ def question_ai_modify(request, pk):
         return JsonResponse({'success': False, 'error': '修改失败，请重试'}, status=500)
 
 
+class ExamReviewView(LoginRequiredMixin, TemplateView):
+    """Instructor essay grading console: needs_review answers per attempt."""
+
+    template_name = 'examination/exam_review.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        exam = get_object_or_404(Exam, pk=self.kwargs['pk'])
+        user = self.request.user
+        if not (user == exam.created_by or user.is_staff):
+            from django.core.exceptions import PermissionDenied
+            raise PermissionDenied
+
+        attempts = exam.student_attempts.filter(is_submitted=True).select_related('student')
+        review_items = []
+        for attempt in attempts:
+            essay_answers = ExamAnswer.objects.filter(
+                student_exam=attempt, question__question_type='essay'
+            ).select_related('question').order_by('question__order')
+            if essay_answers:
+                review_items.append({
+                    'attempt': attempt,
+                    'student': attempt.student,
+                    'answers': essay_answers,
+                })
+        context['exam'] = exam
+        context['review_items'] = review_items
+        return context
+
+
+@login_required
+@require_http_methods(["POST"])
+def exam_review_grade(request, pk):
+    """Grade one essay answer (instructor) and recompute the attempt score."""
+    answer = get_object_or_404(ExamAnswer, pk=pk)
+    if not (request.user == answer.student_exam.exam.created_by
+            or request.user.is_staff):
+        return JsonResponse({'success': False, 'error': 'Permission denied'}, status=403)
+
+    data = json.loads(request.body)
+    try:
+        points = int(data.get('points', 0))
+    except (TypeError, ValueError):
+        return JsonResponse({'success': False, 'error': '分值无效'}, status=400)
+
+    max_points = answer.question.points
+    if points < 0 or points > max_points:
+        return JsonResponse({'success': False, 'error': f'分值需在 0-{max_points} 之间'}, status=400)
+
+    answer.points_awarded = points
+    answer.is_correct = points >= max_points * 0.6
+    answer.feedback = (data.get('feedback') or '').strip()
+    answer.status = 'graded'
+    answer.graded_by = request.user
+    answer.save()
+
+    from apps.examination.question_ai import recompute_exam_scores
+    recompute_exam_scores(answer.student_exam.exam)
+
+    return JsonResponse({
+        'success': True,
+        'message': f'已评分 {points}/{max_points} 分，尝试总分已重算',
+    })
+
+
 class ExamResultsView(LoginRequiredMixin, DetailView):
+    """Display exam results and score breakdown"""
     """Display exam results and score breakdown"""
     model = StudentExam
     template_name = 'examination/exam_results.html'

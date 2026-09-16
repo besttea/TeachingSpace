@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+
+{% block title %}简答题评阅：{{ exam.title }} - Python Learning{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-journal-check"></i> 简答题评阅：{{ exam.title }}</h2>
+        <a href="{% url 'examination:exam-manage' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> 返回考试管理
+        </a>
+    </div>
+
+    {% for item in review_items %}
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <strong>
+                <i class="bi bi-person-circle"></i>
+                {{ item.student.get_full_name|default:item.student.username }}
+            </strong>
+            <span class="text-muted ms-2">
+                尝试 #{{ item.attempt.attempt_number }} ｜ 当前得分 {{ item.attempt.score|default:"未计分" }}
+            </span>
+        </div>
+        <div class="list-group list-group-flush">
+            {% for answer in item.answers %}
+            <div class="list-group-item" id="answer-row-{{ answer.id }}">
+                <p class="fw-bold">{{ answer.question.question_text }}</p>
+                <div class="bg-light p-3 rounded mb-3" style="white-space: pre-wrap;">
+                    {{ answer.answer_data.text|default:"（未作答）" }}
+                </div>
+                {% if answer.status == 'graded' %}
+                <div class="alert alert-success py-2">
+                    已评分：{{ answer.points_awarded }}/{{ answer.question.points }} 分
+                    {% if answer.feedback %}<br><small>{{ answer.feedback|linebreaks }}</small>{% endif %}
+                </div>
+                {% else %}
+                <form class="row g-2" onsubmit="return gradeAnswer(event, {{ answer.id }}, {{ answer.question.points }})">
+                    <div class="col-md-2">
+                        <input type="number" class="form-control form-control-sm" id="points-{{ answer.id }}"
+                               min="0" max="{{ answer.question.points }}" value="0" required>
+                        <small class="text-muted">满分 {{ answer.question.points }}</small>
+                    </div>
+                    <div class="col-md-7">
+                        <input type="text" class="form-control form-control-sm" id="feedback-{{ answer.id }}"
+                               placeholder="评语（可选），如：关键点覆盖完整，但缺少示例">
+                    </div>
+                    <div class="col-md-3">
+                        <button type="submit" class="btn btn-sm btn-primary w-100">提交评分</button>
+                    </div>
+                </form>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% empty %}
+    <div class="alert alert-info">没有待评阅的简答题（无已提交的尝试或全部已评分）。</div>
+    {% endfor %}
+</div>
+
+<script>
+    async function gradeAnswer(event, answerId, maxPoints) {
+        event.preventDefault();
+        const points = parseInt(document.getElementById(`points-${answerId}`).value, 10);
+        const feedback = document.getElementById(`feedback-${answerId}`).value;
+        try {
+            const response = await fetch(`/examination/api/answers/${answerId}/grade/`, {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+                body: JSON.stringify({points: points, feedback: feedback})
+            });
+            const data = await response.json();
+            if (data.success) {
+                alert(data.message);
+                location.reload();
+            } else {
+                alert('评分失败: ' + (data.error || ''));
+            }
+        } catch (e) {
+            alert('评分失败，请重试。');
+        }
+        return false;
+    }
+</script>
+{% endblock %}

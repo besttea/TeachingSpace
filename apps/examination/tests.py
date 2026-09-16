@@ -221,3 +221,61 @@ class ScoreRecomputeTests(TestCase):
         self.assertEqual(updated, 1)
         attempt.refresh_from_db()
         self.assertEqual(attempt.score, 50)
+
+
+class EssayReviewTests(TestCase):
+    """T16: instructor essay grading endpoint with score recompute."""
+
+    def setUp(self):
+        self.instructor = User.objects.create_user(
+            username='review_teacher', email='rvt@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.student = User.objects.create_user(
+            username='review_student', email='rvs@example.com',
+            password='StrongPass123!', user_type='student')
+        self.exam = Exam.objects.create(
+            title='评阅测试', description='x', duration_minutes=30,
+            passing_score=60, max_attempts=3, is_published=True,
+            created_by=self.instructor)
+        self.essay_q = Question.objects.create(
+            exam=self.exam, question_type='essay',
+            question_text='解释列表与元组的区别', points=10, order=0)
+        self.attempt = StudentExam.objects.create(
+            student=self.student, exam=self.exam, attempt_number=1,
+            time_remaining_seconds=100, score=0, is_submitted=True)
+        self.answer = ExamAnswer.objects.create(
+            student_exam=self.attempt, question=self.essay_q,
+            answer_data={'text': '列表可变，元组不可变'},
+            status='needs_review', points_awarded=None)
+
+    def test_grade_answer_recomputes_score(self):
+        self.client.force_login(self.instructor)
+        response = self.client.post(
+            reverse('examination:answer-grade', args=[self.answer.id]),
+            data=json.dumps({'points': 8, 'feedback': '答到要点'}),
+            content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.answer.refresh_from_db()
+        self.assertEqual(self.answer.points_awarded, 8)
+        self.assertEqual(self.answer.status, 'graded')
+        self.attempt.refresh_from_db()
+        self.assertEqual(self.attempt.score, 80)  # 8/10
+
+    def test_points_beyond_max_rejected(self):
+        self.client.force_login(self.instructor)
+        response = self.client.post(
+            reverse('examination:answer-grade', args=[self.answer.id]),
+            data=json.dumps({'points': 99}),
+            content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+
+    def test_non_creator_forbidden(self):
+        other = User.objects.create_user(
+            username='review_other', email='rvo@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.client.force_login(other)
+        response = self.client.post(
+            reverse('examination:answer-grade', args=[self.answer.id]),
+            data=json.dumps({'points': 5}),
+            content_type='application/json')
+        self.assertEqual(response.status_code, 403)
