@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+
+{% block title %}编辑题目 - Python Learning{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-pencil-square"></i> 编辑题目 #{{ question.id }}（{{ question.get_question_type_display }}）</h2>
+        <a href="{% url 'examination:exam-manage' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> 返回考试管理
+        </a>
+    </div>
+
+    {% if messages %}
+        {% for message in messages %}
+        <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+    {% endif %}
+
+    <form method="post" class="card">
+        {% csrf_token %}
+        <div class="card-body">
+            <div class="mb-3">
+                <label class="form-label">题干 *</label>
+                <textarea class="form-control" name="text" rows="3" required>{{ data.text }}</textarea>
+            </div>
+            <div class="mb-3 col-md-3">
+                <label class="form-label">分值</label>
+                <input type="number" class="form-control" name="points" value="{{ data.points }}" min="1">
+            </div>
+
+            {% if question.question_type == 'multiple_choice' %}
+            <hr>
+            <div class="mb-2">
+                <label class="form-label">选项 A</label>
+                <input type="text" class="form-control" name="option_a" value="{{ option_a }}">
+            </div>
+            <div class="mb-2">
+                <label class="form-label">选项 B</label>
+                <input type="text" class="form-control" name="option_b" value="{{ option_b }}">
+            </div>
+            <div class="mb-2">
+                <label class="form-label">选项 C</label>
+                <input type="text" class="form-control" name="option_c" value="{{ option_c }}">
+            </div>
+            <div class="mb-2">
+                <label class="form-label">选项 D</label>
+                <input type="text" class="form-control" name="option_d" value="{{ option_d }}">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">正确答案</label>
+                <select class="form-select" name="correct_answer">
+                    {% for key in "ABCD" %}
+                    <option value="{{ key }}" {% if data.correct_answer == key %}selected{% endif %}>{{ key }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">解析</label>
+                <textarea class="form-control" name="explanation" rows="2">{{ data.explanation }}</textarea>
+            </div>
+
+            {% elif question.question_type == 'true_false' %}
+            <hr>
+            <div class="mb-3">
+                <label class="form-label">正确答案</label>
+                <select class="form-select" name="correct_answer">
+                    <option value="true" {% if data.correct_answer %}selected{% endif %}>正确</option>
+                    <option value="false" {% if not data.correct_answer %}selected{% endif %}>错误</option>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">解析</label>
+                <textarea class="form-control" name="explanation" rows="2">{{ data.explanation }}</textarea>
+            </div>
+
+            {% elif question.question_type == 'code' %}
+            <hr>
+            <div class="mb-3">
+                <label class="form-label">起始代码</label>
+                <textarea class="form-control font-monospace" name="starter_code" rows="4">{{ data.starter_code }}</textarea>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">参考答案（保存前会在沙箱中验证）</label>
+                <textarea class="form-control font-monospace" name="solution_code" rows="6" required>{{ data.solution_code }}</textarea>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">测试用例（JSON 数组，函数式）</label>
+                <textarea class="form-control font-monospace" name="test_cases" rows="4" required>{{ test_cases_json }}</textarea>
+                <small class="text-muted">如：[{"input": "add(1, 2)", "expected": 3}]</small>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">解题思路</label>
+                <textarea class="form-control" name="explanation" rows="2">{{ data.explanation }}</textarea>
+            </div>
+
+            {% elif question.question_type == 'essay' %}
+            <hr>
+            <div class="mb-3 col-md-3">
+                <label class="form-label">字数限制（0 为不限）</label>
+                <input type="number" class="form-control" name="word_limit" value="{{ data.word_limit|default:0 }}" min="0">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">评分标准（rubric）</label>
+                <textarea class="form-control" name="rubric" rows="3">{{ data.rubric }}</textarea>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">参考答案</label>
+                <textarea class="form-control" name="sample_answer" rows="3">{{ data.sample_answer }}</textarea>
+            </div>
+            {% endif %}
+        </div>
+        <div class="card-footer d-flex gap-2">
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存</button>
+            <a href="{% url 'examination:exam-manage' %}" class="btn btn-outline-secondary">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

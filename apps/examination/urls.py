@@ -11,6 +11,7 @@ urlpatterns = [
     path('api/answers/<int:pk>/grade/', views.exam_review_grade, name='answer-grade'),
     path('api/<int:pk>/publish/', views.exam_publish, name='exam-publish'),
     path('api/questions/<int:pk>/ai-modify/', views.question_ai_modify, name='question-ai-modify'),
+    path('manage/questions/<int:pk>/edit/', views.question_edit, name='question-edit'),
     path('<int:pk>/', views.ExamDetailView.as_view(), name='exam-detail'),
 
     # Exam taking flow

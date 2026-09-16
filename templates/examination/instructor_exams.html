@@ -46,10 +46,16 @@
                     <span class="text-muted small ms-1">{{ question.points }} 分</span>
                     <span class="d-inline-block ms-2">{{ question.question_text|truncatechars:80 }}</span>
                 </div>
-                <button class="btn btn-sm btn-outline-primary text-nowrap"
-                        onclick="aiModifyFlow({{ question.id }}, '{{ question.question_text|truncatechars:20|escapejs }}')">
-                    <i class="bi bi-stars"></i> AI 修改
-                </button>
+                <div class="btn-group">
+                    <a href="{% url 'examination:question-edit' question.id %}" class="btn btn-sm btn-outline-secondary"
+                       title="手动编辑">
+                        <i class="bi bi-pencil"></i>
+                    </a>
+                    <button class="btn btn-sm btn-outline-primary text-nowrap"
+                            onclick="aiModifyFlow({{ question.id }}, '{{ question.question_text|truncatechars:20|escapejs }}')">
+                        <i class="bi bi-stars"></i> AI 修改
+                    </button>
+                </div>
             </div>
             {% empty %}
             <div class="list-group-item text-muted">本考试还没有题目。</div>

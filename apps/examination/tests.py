@@ -279,3 +279,65 @@ class EssayReviewTests(TestCase):
             data=json.dumps({'points': 5}),
             content_type='application/json')
         self.assertEqual(response.status_code, 403)
+
+
+class QuestionEditTests(TestCase):
+    """Manual question editing form (all four types route through apply_question)."""
+
+    def setUp(self):
+        self.instructor = User.objects.create_user(
+            username='qedit_teacher', email='qet@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.exam = Exam.objects.create(
+            title='编辑测试', description='x', duration_minutes=30,
+            passing_score=60, max_attempts=3, is_published=False,
+            created_by=self.instructor)
+        self.question = Question.objects.create(
+            exam=self.exam, question_type='multiple_choice',
+            question_text='旧题干', points=5, order=0)
+        MultipleChoiceQuestion.objects.create(
+            question=self.question,
+            options={'A': '1', 'B': '2', 'C': '3', 'D': '4'}, correct_answer='A')
+
+    def test_edit_page_renders_with_prefill(self):
+        self.client.force_login(self.instructor)
+        response = self.client.get(
+            reverse('examination:question-edit', args=[self.question.id]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '旧题干')
+        self.assertContains(response, '选项 A')
+
+    def test_edit_updates_question(self):
+        self.client.force_login(self.instructor)
+        response = self.client.post(
+            reverse('examination:question-edit', args=[self.question.id]),
+            {'text': '新题干', 'points': '8',
+             'option_a': '甲', 'option_b': '乙', 'option_c': '丙', 'option_d': '丁',
+             'correct_answer': 'B', 'explanation': '解析'})
+        self.assertEqual(response.status_code, 302)
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.question_text, '新题干')
+        self.assertEqual(self.question.points, 8)
+        specific = self.question.get_specific_question()
+        self.assertEqual(specific.options['B'], '乙')
+        self.assertEqual(specific.correct_answer, 'B')
+
+    def test_invalid_answer_key_rejected(self):
+        self.client.force_login(self.instructor)
+        response = self.client.post(
+            reverse('examination:question-edit', args=[self.question.id]),
+            {'text': 'x', 'points': '5',
+             'option_a': '1', 'option_b': '2', 'option_c': '3', 'option_d': '4',
+             'correct_answer': 'Z'})
+        self.assertEqual(response.status_code, 302)  # back to form with error
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.question_text, '旧题干')  # unchanged
+
+    def test_student_forbidden(self):
+        student = User.objects.create_user(
+            username='qedit_student', email='qes@example.com',
+            password='StrongPass123!', user_type='student')
+        self.client.force_login(student)
+        response = self.client.get(
+            reverse('examination:question-edit', args=[self.question.id]))
+        self.assertEqual(response.status_code, 403)

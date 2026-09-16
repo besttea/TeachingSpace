@@ -1,4 +1,5 @@
 from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView, DetailView, TemplateView
@@ -583,6 +584,84 @@ def exam_review_grade(request, pk):
         'success': True,
         'message': f'已评分 {points}/{max_points} 分，尝试总分已重算',
     })
+
+
+@login_required
+def question_edit(request, pk):
+    """Manual question editing form (exam creator/staff) — all four types."""
+    question = get_object_or_404(Question, pk=pk)
+    if not (request.user == question.exam.created_by or request.user.is_staff):
+        from django.core.exceptions import PermissionDenied
+        raise PermissionDenied
+
+    from .question_ai import apply_question, question_to_dict
+
+    if request.method == 'POST':
+        import json as _json
+
+        updated = question_to_dict(question)
+        updated['text'] = (request.POST.get('text') or '').strip()
+        updated['points'] = int(request.POST.get('points', question.points))
+        q_type = question.question_type
+
+        if q_type == 'multiple_choice':
+            options = {'A': request.POST.get('option_a', ''),
+                       'B': request.POST.get('option_b', ''),
+                       'C': request.POST.get('option_c', ''),
+                       'D': request.POST.get('option_d', '')}
+            updated['options'] = options
+            updated['correct_answer'] = request.POST.get('correct_answer', 'A')
+            updated['explanation'] = request.POST.get('explanation', '')
+            if updated['correct_answer'] not in options:
+                messages.error(request, '正确答案必须是 A/B/C/D 之一')
+                return redirect('examination:question-edit', pk=question.pk)
+        elif q_type == 'true_false':
+            updated['correct_answer'] = (request.POST.get('correct_answer') == 'true')
+            updated['explanation'] = request.POST.get('explanation', '')
+        elif q_type == 'code':
+            updated['starter_code'] = request.POST.get('starter_code', '')
+            updated['solution_code'] = request.POST.get('solution_code', '')
+            updated['explanation'] = request.POST.get('explanation', '')
+            try:
+                test_cases = _json.loads(request.POST.get('test_cases', '[]'))
+                if not isinstance(test_cases, list):
+                    raise ValueError('test_cases 必须是 JSON 数组')
+                updated['test_cases'] = test_cases
+            except (ValueError, _json.JSONDecodeError) as e:
+                messages.error(request, f'测试用例格式错误: {e}')
+                return redirect('examination:question-edit', pk=question.pk)
+            # Sandbox validation before saving code questions (skill mode)
+            from .question_ai import validate_code_question
+            ok, message = validate_code_question(updated)
+            if not ok:
+                messages.error(request, f'参考答案未通过测试用例（{message}）——未保存')
+                return redirect('examination:question-edit', pk=question.pk)
+        elif q_type == 'essay':
+            updated['word_limit'] = int(request.POST.get('word_limit') or 0)
+            updated['rubric'] = request.POST.get('rubric', '')
+            updated['sample_answer'] = request.POST.get('sample_answer', '')
+
+        points_changed = updated['points'] != question.points
+        apply_question(question, updated)
+        if points_changed:
+            from .question_ai import recompute_exam_scores
+            recompute_exam_scores(question.exam)
+
+        messages.success(request, '题目已更新')
+        return redirect('examination:exam-manage')
+
+    context = {
+        'question': question,
+        'data': question_to_dict(question),
+        # flat option fields for the template (no `in` operator in DTL)
+        'option_a': question_to_dict(question).get('options', {}).get('A', ''),
+        'option_b': question_to_dict(question).get('options', {}).get('B', ''),
+        'option_c': question_to_dict(question).get('options', {}).get('C', ''),
+        'option_d': question_to_dict(question).get('options', {}).get('D', ''),
+        'test_cases_json': json.dumps(
+            question_to_dict(question).get('test_cases', []), ensure_ascii=False),
+    }
+    return render(request, 'examination/question_form.html', context)
 
 
 class ExamResultsView(LoginRequiredMixin, DetailView):
