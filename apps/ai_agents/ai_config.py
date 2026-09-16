@@ -40,7 +40,14 @@ def base_url() -> str:
 
 
 def model_name() -> str:
-    """Model to use: settings.AI_MODEL override, else the provider default."""
+    """Model to use.
+
+    Precedence: settings.AI_ACTIVE_MODEL (app-specific, immune to host
+    harness env vars) → settings.AI_MODEL → the active provider's default.
+    """
+    active = getattr(settings, 'AI_ACTIVE_MODEL', '')
+    if active:
+        return active
     return getattr(settings, 'AI_MODEL', '') or active_provider().get('default_model', '')
 
 

@@ -54,12 +54,16 @@ class HarnessCore:
 
     @staticmethod
     def role_model(role: str) -> str:
-        """Model name for a role (planner/worker/grader)."""
+        """Model name for a role (planner/worker/grader).
+
+        Unset roles fall back to the active provider model — never hardcode
+        a reasoning model as the planner default.
+        """
         roles = getattr(settings, 'AI_MODEL_ROLES', {}) or {}
         default = ai_config.model_name()
         if role == 'planner':
             return roles.get('planner') or _first_set(
-                getattr(settings, 'AI_PLANNER_MODEL', ''), 'deepseek-reasoner', default)
+                getattr(settings, 'AI_PLANNER_MODEL', ''), default)
         if role == 'grader':
             return roles.get('grader') or _first_set(
                 getattr(settings, 'AI_GRADER_MODEL', ''), default)

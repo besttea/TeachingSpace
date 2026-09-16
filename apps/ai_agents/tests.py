@@ -93,7 +93,7 @@ class AIConfigTests(SimpleTestCase):
                 'default_model': 'deepseek-chat',
             },
         },
-        AI_MODEL='',
+        AI_MODEL='', AI_ACTIVE_MODEL='',
     )
     def test_deepseek_provider_selected(self):
         self.assertEqual(ai_config.provider_name(), 'deepseek')
@@ -112,7 +112,7 @@ class AIConfigTests(SimpleTestCase):
                 'default_model': 'deepseek-chat',
             },
         },
-        AI_MODEL='deepseek-reasoner',
+        AI_MODEL='deepseek-reasoner', AI_ACTIVE_MODEL='',
     )
     def test_model_override_wins(self):
         self.assertEqual(ai_config.model_name(), 'deepseek-reasoner')
@@ -124,7 +124,7 @@ class AIConfigTests(SimpleTestCase):
             'deepseek': {'api_key': '', 'base_url': 'https://api.deepseek.com/anthropic',
                          'default_model': 'deepseek-chat'},
         },
-        AI_MODEL='',
+        AI_MODEL='', AI_ACTIVE_MODEL='',
     )
     def test_missing_key_not_configured(self):
         self.assertFalse(ai_config.is_configured())
@@ -139,7 +139,7 @@ class AIConfigTests(SimpleTestCase):
                 'default_model': 'deepseek-chat',
             },
         },
-        AI_MODEL='',
+        AI_MODEL='', AI_ACTIVE_MODEL='',
     )
     def test_base_agent_uses_active_provider(self):
         from .learning_agent import LearningAgent
@@ -281,7 +281,7 @@ class HarnessTests(SimpleTestCase):
         AI_MODEL_ROLES={}, AI_FALLBACK_MODELS='',
         AI_PROVIDERS={'anthropic': {'api_key': 'k', 'base_url': '',
                                     'default_model': 'claude-x'}},
-        AI_PROVIDER='anthropic', AI_MODEL='',
+        AI_PROVIDER='anthropic', AI_MODEL='', AI_ACTIVE_MODEL='',
     )
     def test_role_model_routing(self):
         from .harness import HarnessCore
@@ -291,10 +291,34 @@ class HarnessTests(SimpleTestCase):
 
     @override_settings(
         AI_PLANNER_MODEL='', AI_WORKER_MODEL='', AI_MODEL_ROLES={},
+        AI_FALLBACK_MODELS='',
+        AI_PROVIDERS={'anthropic': {'api_key': 'k', 'base_url': '',
+                                    'default_model': 'm1'}},
+        AI_PROVIDER='anthropic', AI_MODEL='', AI_ACTIVE_MODEL='',
+    )
+    def test_planner_defaults_to_provider_model(self):
+        # no hardcoded reasoner default — unset planner follows the provider
+        from .harness import HarnessCore
+        self.assertEqual(HarnessCore.role_model('planner'), 'm1')
+        self.assertEqual(HarnessCore.role_model('worker'), 'm1')
+
+    @override_settings(
+        AI_PLANNER_MODEL='', AI_WORKER_MODEL='', AI_MODEL_ROLES={},
+        AI_FALLBACK_MODELS='',
+        AI_PROVIDERS={'anthropic': {'api_key': 'k', 'base_url': '',
+                                    'default_model': 'm1'}},
+        AI_PROVIDER='anthropic', AI_MODEL='os-reasoner', AI_ACTIVE_MODEL='app-flash',
+    )
+    def test_active_model_beats_ai_model(self):
+        from . import ai_config
+        self.assertEqual(ai_config.model_name(), 'app-flash')
+
+    @override_settings(
+        AI_PLANNER_MODEL='', AI_WORKER_MODEL='', AI_MODEL_ROLES={},
         AI_FALLBACK_MODELS='m2,m3',
         AI_PROVIDERS={'anthropic': {'api_key': 'k', 'base_url': '',
                                     'default_model': 'm1'}},
-        AI_PROVIDER='anthropic', AI_MODEL='',
+        AI_PROVIDER='anthropic', AI_MODEL='', AI_ACTIVE_MODEL='',
     )
     def test_fallback_chain(self):
         from .harness import HarnessCore
@@ -348,3 +372,23 @@ class SkillPipelineTests(TestCase):
             # planner used for the plan, worker for questions
             self.assertEqual(call.call_args_list[0].kwargs['role'], 'planner')
             self.assertEqual(call.call_args_list[1].kwargs['role'], 'worker')
+
+
+class LoggerHygieneTests(SimpleTestCase):
+    """Static guard: modules referencing `logger` must define it.
+
+    Regression for the 'name logger is not defined' generation failures
+    (learning_agent.py referenced logger without defining it — surfaced
+    only when a cell failed during generation).
+    """
+
+    def test_modules_referencing_logger_define_it(self):
+        import pathlib
+
+        pkg = pathlib.Path(__file__).parent
+        for py in pkg.rglob('*.py'):
+            src = py.read_text(encoding='utf-8')
+            if 'logger.' in src:
+                self.assertTrue(
+                    'logger = logging.getLogger' in src,
+                    f'{py.name} uses logger but never defines it')

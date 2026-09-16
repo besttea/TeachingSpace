@@ -217,6 +217,10 @@ AI_PROVIDERS = {
     },
 }
 AI_PROVIDER = config('AI_PROVIDER', default='anthropic')
+# App-specific active model — takes precedence over AI_MODEL and provider
+# defaults, and is immune to host-harness environment variables (e.g. the
+# Claude Code harness exporting AI_MODEL=... into the shell).
+AI_ACTIVE_MODEL = config('AI_ACTIVE_MODEL', default='')
 # Optional global model override (applies to whichever provider is active)
 AI_MODEL = config('AI_MODEL', default='')
 
