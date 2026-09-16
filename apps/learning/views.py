@@ -999,6 +999,29 @@ def kernel_restart(request, pk):
 
 @login_required
 @require_http_methods(["POST"])
+def lesson_heartbeat(request, pk):
+    """Accumulate study time (T10). Body: {seconds} — atomic F() update."""
+    lesson = get_object_or_404(Lesson, pk=pk)
+    enrollment = Enrollment.objects.filter(
+        student=request.user, course=lesson.chapter.course, is_active=True).first()
+    if enrollment is None:
+        return JsonResponse({'error': '未选课'}, status=403)
+
+    try:
+        data = json.loads(request.body or '{}')
+        seconds = int(data.get('seconds', 0))
+    except (ValueError, TypeError):
+        seconds = 0
+    seconds = min(max(seconds, 0), 300)  # clamp 0-300s per beat
+
+    progress, _ = LessonProgress.objects.get_or_create(
+        enrollment=enrollment, lesson=lesson)
+    progress.add_time(seconds)
+    return JsonResponse({'success': True, 'time_spent_seconds': progress.time_spent_seconds})
+
+
+@login_required
+@require_http_methods(["POST"])
 def mark_lesson_complete(request, pk):
     """Mark a lesson as completed"""
     try:

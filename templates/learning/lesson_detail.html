@@ -378,6 +378,9 @@ function notebookViewer() {
                     ]
                 });
             }
+            {% if enrollment %}
+            this.startHeartbeat();
+            {% endif %}
         },
 
         renderMarkdown(markdown) {
@@ -517,6 +520,20 @@ function notebookViewer() {
                 console.error('Error:', error);
                 alert('内核重启失败，请稍后再试。');
             }
+        },
+
+        // T10: 学习时长心跳（每 60 秒累计一次，原子累加）
+        startHeartbeat() {
+            this.heartbeatTimer = setInterval(() => {
+                fetch(`/learning/api/lessons/{{ lesson.id }}/heartbeat/`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrftoken,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({seconds: 60})
+                }).catch(() => { /* 网络波动忽略 */ });
+            }, 60000);
         },
 
         async markComplete(lessonId) {

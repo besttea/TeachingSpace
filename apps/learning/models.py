@@ -139,25 +139,9 @@ class Cell(models.Model):
     def __str__(self):
         return f"{self.lesson.title} - {self.cell_type} cell #{self.order}"
 
-    def execute(self):
-        """Execute code cell"""
-        if self.cell_type != 'code':
-            raise ValueError("Only code cells can be executed")
-
-        from apps.code_runner.executor import CodeExecutor
-        executor = CodeExecutor()
-
-        code = self.data.get('source', '')
-        result = executor.execute_code(code)
-
-        # Update cell data with execution results
-        self.data['output'] = result.get('output', '')
-        self.data['status'] = result.get('status', 'error')
-        self.data['execution_time_ms'] = result.get('execution_time', 0)
-        self.data['execution_count'] = self.data.get('execution_count', 0) + 1
-        self.save()
-
-        return result
+    # NOTE (T13): the legacy Cell.execute() was removed — learning-class
+    # execution goes through the real Jupyter kernel (jupyter_kernel.py) and
+    # never writes student output back into the shared cell.
 
 
 class CellVersion(models.Model):
@@ -335,3 +319,11 @@ class LessonProgress(models.Model):
                 progress.code_cells_run = executed
                 progress.cells_executed += 1
                 progress.save()
+
+    def add_time(self, seconds):
+        """Accumulate study time (T10) — atomic F() update, no read-modify-write."""
+        from django.db.models import F
+        if seconds <= 0:
+            return
+        type(self).objects.filter(pk=self.pk).update(
+            time_spent_seconds=F('time_spent_seconds') + seconds)

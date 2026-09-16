@@ -481,3 +481,42 @@ class CellVersionListingTests(TestCase):
         response = self.client.get(
             reverse('learning:cell-versions', args=[self.cell.id]))
         self.assertEqual(response.status_code, 403)
+
+
+class LessonHeartbeatTests(TestCase):
+    """T10: study time accumulation endpoint."""
+
+    def setUp(self):
+        self.instructor = User.objects.create_user(
+            username='hb_teacher', email='hbt@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.student = User.objects.create_user(
+            username='hb_student', email='hbs@example.com',
+            password='StrongPass123!', user_type='student')
+        self.course = Course.objects.create(
+            title='HB', description='x', instructor=self.instructor, is_published=True)
+        self.chapter = Chapter.objects.create(course=self.course, title='Ch', order=0)
+        self.lesson = Lesson.objects.create(
+            chapter=self.chapter, title='L', status='published', order=0)
+        self.enrollment = Enrollment.objects.create(student=self.student, course=self.course)
+
+    def test_heartbeat_accumulates(self):
+        self.client.force_login(self.student)
+        url = reverse('learning:lesson-heartbeat', args=[self.lesson.id])
+        for _ in range(3):
+            response = self.client.post(
+                url, data=json.dumps({'seconds': 60}), content_type='application/json')
+            self.assertEqual(response.status_code, 200)
+        progress = LessonProgress.objects.get(
+            enrollment=self.enrollment, lesson=self.lesson)
+        self.assertEqual(progress.time_spent_seconds, 180)
+
+    def test_heartbeat_requires_enrollment(self):
+        outsider = User.objects.create_user(
+            username='hb_outsider', email='hbo@example.com',
+            password='StrongPass123!', user_type='student')
+        self.client.force_login(outsider)
+        response = self.client.post(
+            reverse('learning:lesson-heartbeat', args=[self.lesson.id]),
+            data=json.dumps({'seconds': 60}), content_type='application/json')
+        self.assertEqual(response.status_code, 403)

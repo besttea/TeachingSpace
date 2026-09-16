@@ -37,6 +37,7 @@ urlpatterns = [
 
     # Progress tracking
     path('api/lessons/<int:pk>/mark-complete/', views.mark_lesson_complete, name='lesson-complete'),
+    path('api/lessons/<int:pk>/heartbeat/', views.lesson_heartbeat, name='lesson-heartbeat'),
 
     # Jupyter kernel sessions (real notebook execution)
     path('api/lessons/<int:pk>/kernel/execute/', views.kernel_execute, name='kernel-execute'),
