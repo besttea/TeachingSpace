@@ -155,7 +155,6 @@ class DashboardActivityTests(TestCase):
         from apps.learning.models import Course, Enrollment
         from apps.training.models import Exercise, Submission
         from apps.examination.models import Exam, StudentExam
-        from django.utils import timezone
 
         instructor = User.objects.create_user(
             username='cal_teacher', email='clt@example.com',

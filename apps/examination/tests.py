@@ -480,7 +480,6 @@ class QuestionBankImportExportTests(TestCase):
             passing_score=60, max_attempts=3, is_published=False,
             created_by=instructor)
 
-        import json as _json
         import tempfile
         import os
 
