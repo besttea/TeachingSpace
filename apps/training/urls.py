@@ -16,6 +16,7 @@ urlpatterns = [
     path('exercises/<slug:slug>/history/', views.submission_history, name='submission-history'),
     path('submissions/<int:pk>/', views.submission_detail, name='submission-detail'),
     path('api/exercises/<int:pk>/ai-modify/', views.exercise_ai_modify, name='exercise-ai-modify'),
+    path('api/exercises/ai-draft/', views.exercise_ai_draft, name='exercise-ai-draft'),
 
     # Hints
     path('api/hints/<int:hint_id>/view/', views.view_hint, name='view-hint'),

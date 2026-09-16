@@ -306,6 +306,53 @@ def exercise_delete(request, pk):
 
 
 @login_required
+@require_http_methods(["POST"])
+@rate_limit('exercise_ai_draft', limit=30, window_seconds=3600)
+def exercise_ai_draft(request):
+    """AI-generate an exercise draft for the create form (no DB save).
+
+    The instructor reviews the returned fields (frontend fills the form),
+    then submits the regular create flow. Skill mode: sandbox-validated
+    before returning.
+    """
+    if not (request.user.is_staff or request.user.user_type == 'instructor'):
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+
+    try:
+        data = json.loads(request.body)
+        topic = (data.get('topic') or '').strip()
+        difficulty = data.get('difficulty', 'beginner')
+        if not topic:
+            return JsonResponse({'error': '主题不能为空'}, status=400)
+
+        from apps.ai_agents.ai_config import is_configured
+        if not is_configured():
+            return JsonResponse({'error': 'AI 服务未配置（缺少 API 密钥）'}, status=400)
+
+        from apps.ai_agents.skills import ExerciseSkill
+        result = ExerciseSkill().run(topic, difficulty)
+        exercise = result['exercise']
+        if not isinstance(exercise, dict) or not exercise.get('title'):
+            return JsonResponse({'error': 'AI 返回结果无效，请重试'}, status=400)
+
+        return JsonResponse({
+            'success': True,
+            'exercise': exercise,
+            'validated': result['validated'],
+            'validation_message': result['validation_message'],
+            'attempts': result['attempts'],
+        })
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception('exercise_ai_draft failed')
+        from django.conf import settings
+        if getattr(settings, 'DEBUG', False):
+            return JsonResponse({'error': str(e)}, status=500)
+        return JsonResponse({'error': '生成失败，请重试'}, status=500)
+
+
+@login_required
 def exercise_create(request):
     """Create an exercise (instructor/staff) — title, code, test cases, hints."""
     if not (request.user.is_staff or request.user.user_type == 'instructor'):

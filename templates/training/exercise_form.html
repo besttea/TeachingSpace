@@ -16,6 +16,39 @@
         {% endfor %}
     {% endif %}
 
+    {% if not editing %}
+    <!-- AI 辅助生成草稿：填入主题 → 生成 → 自动填充下方表单（审阅后点创建） -->
+    <div class="card border-primary-subtle mb-4 bg-primary bg-opacity-10">
+        <div class="card-body">
+            <h6 class="mb-2"><i class="bi bi-stars text-warning"></i> AI 辅助生成草稿</h6>
+            <div class="row g-2 align-items-end">
+                <div class="col-md-5">
+                    <label class="form-label small mb-1">练习主题 *</label>
+                    <input type="text" class="form-control form-control-sm" id="aiTopic"
+                           placeholder="如：字符串反转、斐波那契数列">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small mb-1">难度</label>
+                    <select class="form-select form-select-sm" id="aiDifficulty">
+                        <option value="beginner" selected>初级</option>
+                        <option value="intermediate">中级</option>
+                        <option value="advanced">高级</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <button type="button" class="btn btn-sm btn-primary w-100" id="aiDraftBtn"
+                            onclick="generateAiDraft()">
+                        <i class="bi bi-stars"></i> AI 生成草稿
+                    </button>
+                </div>
+                <div class="col-md-2">
+                    <small class="text-muted" id="aiDraftStatus">生成后自动填充表单，人工审阅后点「创建练习」</small>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <form method="post" class="card">
         {% csrf_token %}
         <div class="card-body">
@@ -105,4 +138,65 @@
         </div>
     </form>
 </div>
+
+{% if not editing %}
+<script>
+    // AI 生成草稿：调用 ExerciseSkill（沙箱验证后返回），填充表单字段
+    async function generateAiDraft() {
+        const topic = document.getElementById('aiTopic').value.trim();
+        const difficulty = document.getElementById('aiDifficulty').value;
+        if (!topic) { alert('请先输入练习主题'); return; }
+
+        const btn = document.getElementById('aiDraftBtn');
+        const status = document.getElementById('aiDraftStatus');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 生成中…（约 10-30 秒）';
+        status.textContent = '正在生成并沙箱验证…';
+
+        try {
+            const response = await fetch('/training/api/exercises/ai-draft/', {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+                body: JSON.stringify({topic: topic, difficulty: difficulty})
+            });
+            const data = await response.json();
+            if (!data.success) {
+                alert('生成失败: ' + (data.error || '请确认已配置 AI 密钥'));
+                return;
+            }
+
+            const ex = data.exercise;
+            // 填充表单字段（标题/难度/描述/起始代码/参考答案/测试用例/提示）
+            document.querySelector('input[name="title"]').value = ex.title || '';
+            document.querySelector('select[name="difficulty"]').value = difficulty;
+            document.querySelector('textarea[name="description"]').value = ex.description || '';
+            document.querySelector('textarea[name="starter_code"]').value = ex.starter_code || '';
+            document.querySelector('textarea[name="solution_code"]').value = ex.solution_code || '';
+            document.querySelector('textarea[name="test_cases"]').value = JSON.stringify(ex.test_cases || [], null, 2);
+            (ex.hints || []).forEach(function (hint, index) {
+                if (index < 3) {
+                    const n = index + 1;
+                    const hintInput = document.querySelector('input[name="hint_' + n + '"]');
+                    const penaltyInput = document.querySelector('input[name="hint_penalty_' + n + '"]');
+                    if (hintInput) hintInput.value = hint.content || '';
+                    if (penaltyInput) penaltyInput.value = hint.points_penalty || (n + 1);
+                }
+            });
+
+            status.innerHTML = data.validated
+                ? '<span class="text-success">✓ 已填入表单（沙箱验证通过：' + escapeHtml(data.validation_message) + '）</span>'
+                : '<span class="text-warning">⚠ 已填入表单（验证未通过：' + escapeHtml(data.validation_message) + '）——请人工修改后创建</span>';
+        } catch (e) {
+            alert('生成失败，请重试。');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-stars"></i> AI 生成草稿';
+        }
+    }
+
+    function escapeHtml(text) {
+        return String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+</script>
+{% endif %}
 {% endblock %}

@@ -222,3 +222,59 @@ class ExerciseEditDeleteTests(TestCase):
         response = self.client.get(
             reverse('training:exercise-edit', args=[self.exercise.id]))
         self.assertEqual(response.status_code, 403)
+
+
+class ExerciseAIDraftTests(TestCase):
+    """Create form AI integration: draft generation fills the form (no save)."""
+
+    def setUp(self):
+        from unittest import mock as _mock
+        self.instructor = User.objects.create_user(
+            username='draft_teacher', email='dt@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.student = User.objects.create_user(
+            username='draft_student', email='ds@example.com',
+            password='StrongPass123!', user_type='student')
+
+        patcher = _mock.patch('apps.ai_agents.skills.ExerciseSkill.run')
+        self.mock_run = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.mock_run.return_value = {
+            'exercise': {
+                'title': 'AI 草稿题', 'description': 'd',
+                'starter_code': 'pass', 'solution_code': 'def f():\n    return 1',
+                'test_cases': [{'input': 'f()', 'expected': 1}],
+                'hints': [{'order': 1, 'content': 'h', 'points_penalty': 2}],
+            },
+            'validated': True, 'validation_message': 'Passed 1/1 tests',
+            'attempts': 1,
+        }
+
+    def test_draft_returns_exercise_without_saving(self):
+        self.client.force_login(self.instructor)
+        response = self.client.post(
+            reverse('training:exercise-ai-draft'),
+            data=json.dumps({'topic': '字符串反转', 'difficulty': 'beginner'}),
+            content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        data = response.json()
+        self.assertTrue(data['success'])
+        self.assertEqual(data['exercise']['title'], 'AI 草稿题')
+        self.assertTrue(data['validated'])
+        # nothing persisted — the form's create flow owns saving
+        self.assertEqual(Exercise.objects.count(), 0)
+
+    def test_student_forbidden(self):
+        self.client.force_login(self.student)
+        response = self.client.post(
+            reverse('training:exercise-ai-draft'),
+            data=json.dumps({'topic': 'x'}), content_type='application/json')
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(self.mock_run.called)
+
+    def test_empty_topic_rejected(self):
+        self.client.force_login(self.instructor)
+        response = self.client.post(
+            reverse('training:exercise-ai-draft'),
+            data=json.dumps({'topic': ' '}), content_type='application/json')
+        self.assertEqual(response.status_code, 400)
