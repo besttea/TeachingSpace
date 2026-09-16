@@ -644,6 +644,33 @@ class StudentRosterView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         context['roster'] = roster
         return context
 
+    def render_to_response(self, context, **kwargs):
+        """CSV export (?export=csv) — Excel-friendly UTF-8 BOM encoding."""
+        if self.request.GET.get('export') == 'csv':
+            import csv
+            import io
+
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow(['用户名', '姓名', '邮箱', '选课时间',
+                             '已完成单元', '总单元', '进度%'])
+            for row in context['roster']:
+                writer.writerow([
+                    row['student'].username,
+                    row['student'].get_full_name(),
+                    row['student'].email,
+                    row['enrolled_at'].strftime('%Y-%m-%d'),
+                    row['completed_lessons'],
+                    row['total_lessons'],
+                    f"{row['progress_percentage']:.0f}",
+                ])
+            response = HttpResponse(
+                '﻿' + buf.getvalue(), content_type='text/csv; charset=utf-8')
+            response['Content-Disposition'] = (
+                f'attachment; filename="roster_{self.object.slug}.csv"')
+            return response
+        return super().render_to_response(context, **kwargs)
+
 
 # ---------------------------------------------------------------------------
 # Cell CRUD API

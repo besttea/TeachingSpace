@@ -221,6 +221,9 @@
     <div x-data="notebookViewer()" x-init="init()">
         {% if enrollment %}
         <div class="text-end mb-3">
+            <button class="btn btn-sm btn-outline-primary me-1" @click="runAllCells()">
+                <i class="bi bi-play"></i> 运行全部代码单元格
+            </button>
             <button class="btn btn-sm btn-outline-secondary" @click="restartKernel()">
                 <i class="bi bi-arrow-counterclockwise"></i> 重启内核（清空变量）
             </button>
@@ -264,7 +267,11 @@
                 </div>
                 <div class="code-source" style="white-space: pre-wrap;"><code style="white-space: pre-wrap; display: block;">{{ cell.data.source }}</code></div>
                 {% if cell.data.output %}
-                <div class="code-output {{ cell.data.status|default:'success' }}">{{ cell.data.output }}</div>
+                <div class="code-output {{ cell.data.status|default:'success' }}">
+                    <span class="sample-output-badge badge bg-secondary bg-opacity-25 text-secondary"
+                          style="font-size:.7rem;">示例输出（运行后将替换为你的结果）</span>
+                    <span class="sample-output-text">{{ cell.data.output }}</span>
+                </div>
                 {% endif %}
             </div>
 
@@ -450,6 +457,11 @@ function notebookViewer() {
                 codeCell.appendChild(outputElement);
             }
             outputElement.innerHTML = '';
+            // 学生执行后移除"示例输出"标注
+            const sampleBadge = cellElement.querySelector('.sample-output-badge');
+            if (sampleBadge) sampleBadge.remove();
+            const sampleText = cellElement.querySelector('.sample-output-text');
+            if (sampleText) sampleText.remove();
 
             const stripAnsi = (s) => (s || '').replace(/\[[0-9;]*m/g, '');
 
@@ -519,6 +531,17 @@ function notebookViewer() {
             } catch (error) {
                 console.error('Error:', error);
                 alert('内核重启失败，请稍后再试。');
+            }
+        },
+
+        // 运行全部代码单元格（顺序执行，保持内核状态）
+        async runAllCells() {
+            const codeCells = [...document.querySelectorAll('.cell[data-cell-type="code"]')];
+            if (!codeCells.length) { alert('本课程单元没有代码单元格'); return; }
+            if (!confirm(`将按顺序执行 ${codeCells.length} 个代码单元格，继续？`)) return;
+            for (let i = 0; i < codeCells.length; i++) {
+                const cellId = parseInt(codeCells[i].dataset.cellId, 10);
+                await this.executeCell(cellId);
             }
         },
 
