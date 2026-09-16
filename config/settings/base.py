@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     "apps.training",
     "apps.examination",
     "apps.chat",
+    "apps.ai_agents",
 ]
 
 MIDDLEWARE = [
@@ -106,9 +107,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.0/topics/i18n/
 
-LANGUAGE_CODE = "en-us"
+LANGUAGE_CODE = "zh-hans"
 
-TIME_ZONE = "UTC"
+TIME_ZONE = "Asia/Shanghai"
 
 USE_I18N = True
 
@@ -170,13 +171,6 @@ EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
 EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
-
-# Markdown settings
-MARKDOWNX_MARKDOWN_EXTENSIONS = [
-    'markdown.extensions.extra',
-    'markdown.extensions.codehilite',
-    'markdown.extensions.fenced_code',
-]
 
 # AI/LLM Configuration
 ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')

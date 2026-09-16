@@ -26,35 +26,38 @@ class TrainingAgent(BaseAgent):
         system_prompt = f"""
         You are an expert Python coding interviewer.
         Create a coding exercise on '{topic}' for {difficulty} level.
-        
-        Output JSON format:
+
+        Output JSON format (test cases are FUNCTION-BASED: 'input' is a python
+        expression calling the student's function, 'expected' is the exact
+        return value):
         {{
             "title": "Exercise Title",
             "description": "Problem description...",
             "starter_code": "def function_name():\\n    pass",
             "solution_code": "def function_name():\\n    # solution",
             "test_cases": [
-                {"input": "function_name(arg1, arg2)", "expected_output": "result", "is_hidden": false}
+                {{"input": "function_name(1, 2)", "expected": 3, "is_hidden": false}},
+                {{"input": "function_name(-1, 1)", "expected": 0, "is_hidden": true}}
             ],
             "hints": [
-                {"order": 1, "content": "First hint...", "points_penalty": 2},
-                {"order": 2, "content": "Second hint...", "points_penalty": 5}
+                {{"order": 1, "content": "First hint...", "points_penalty": 2}},
+                {{"order": 2, "content": "Second hint...", "points_penalty": 5}}
             ]
-        }
+        }}
         """
-        
+
         prompt = f"""
         Create a python coding exercise about {topic}.
-        
+
         Requirements:
         1. Clear problem statement.
         2. {difficulty} difficulty level.
         3. Provide starter code skeleton.
         4. Provide working solution code.
-        5. Include at least 3 test cases (edge cases included). The 'input' field MUST be a valid python function call string (e.g. "my_func(1, 2)").
+        5. Include at least 3 test cases (edge cases included). The 'input' field MUST be a valid python function call expression (e.g. "my_func(1, 2)"), and 'expected' MUST be the exact return value of that call (not a string, unless the function returns one).
         6. Provide 3 progressive hints.
         """
-        
+
         return self.generate_json(prompt, system_prompt)
 
     def generate_hint(self, exercise_description, code_context):

@@ -12,7 +12,7 @@ from .models import Exercise, Hint, Submission, HintUsage
 from apps.accounts.models import StudentProfile
 
 
-class ExerciseListView(ListView):
+class ExerciseListView(LoginRequiredMixin, ListView):
     """Display all exercises with filtering"""
     model = Exercise
     template_name = 'training/exercise_list.html'
@@ -37,7 +37,18 @@ class ExerciseListView(ListView):
         if search:
             queryset = queryset.filter(title__icontains=search)
 
-        return queryset.order_by('difficulty', '-created_at')
+        # Meaningful progression: beginner → intermediate → advanced
+        # (plain order_by('difficulty') would sort alphabetically)
+        from django.db.models import Case, IntegerField, Value, When
+        difficulty_rank = Case(
+            When(difficulty='beginner', then=Value(0)),
+            When(difficulty='intermediate', then=Value(1)),
+            When(difficulty='advanced', then=Value(2)),
+            default=Value(9),
+            output_field=IntegerField(),
+        )
+        return queryset.annotate(difficulty_rank=difficulty_rank).order_by(
+            'difficulty_rank', '-created_at')
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -106,6 +117,13 @@ def submit_solution(request, slug):
         if not code:
             return JsonResponse({'error': 'No code provided'}, status=400)
 
+        # Reject oversized submissions early (the sandbox has the same cap)
+        from apps.code_runner.executor import MAX_CODE_LENGTH
+        if len(code) > MAX_CODE_LENGTH:
+            return JsonResponse({
+                'error': f'代码过长（最多 {MAX_CODE_LENGTH} 字符）'
+            }, status=400)
+
         # Count hints used for this exercise
         hints_used = HintUsage.objects.filter(
             student=request.user,
@@ -136,7 +154,14 @@ def submit_solution(request, slug):
         })
 
     except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+        # Don't leak internal details to students (except in DEBUG)
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception('submit_solution failed')
+        from django.conf import settings
+        if getattr(settings, 'DEBUG', False):
+            return JsonResponse({'error': str(e)}, status=500)
+        return JsonResponse({'error': '提交失败，请重试'}, status=500)
 
 
 @login_required

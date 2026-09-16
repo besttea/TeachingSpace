@@ -7,8 +7,12 @@ from django.views.decorators.http import require_http_methods
 from django.utils import timezone
 from django.db import transaction
 from django.db.models import Q, Count
+from django.conf import settings
 import json
+import logging
 import random
+
+logger = logging.getLogger(__name__)
 
 from .models import (
     Exam, Question, StudentExam, ExamAnswer,
@@ -227,6 +231,18 @@ def save_answer(request):
 
         question = get_object_or_404(Question, id=question_id, exam=student_exam.exam)
 
+        # Validate the answer payload's shape and size before storing
+        if not isinstance(answer_data, dict):
+            return JsonResponse({
+                'success': False,
+                'error': '答案格式无效'
+            }, status=400)
+        if len(json.dumps(answer_data, ensure_ascii=False)) > 100_000:
+            return JsonResponse({
+                'success': False,
+                'error': '答案内容过长'
+            }, status=400)
+
         # Create or update answer
         answer, created = ExamAnswer.objects.update_or_create(
             student_exam=student_exam,
@@ -327,6 +343,30 @@ def submit_exam(request):
                             answer.status = 'graded'
                             answer.save()
 
+                # Grade essay questions with the AI (falls back to manual
+                # review 'needs_review' when no API key is configured)
+                elif answer.question.question_type == 'essay':
+                    essay_question = answer.question.get_specific_question()
+                    if essay_question and getattr(settings, 'ANTHROPIC_API_KEY', ''):
+                        try:
+                            from apps.ai_agents.examination_agent import ExaminationAgent
+                            evaluation = ExaminationAgent().evaluate_essay_answer(
+                                answer.question.question_text,
+                                answer.answer_data.get('text', ''),
+                                essay_question.rubric,
+                                essay_question.sample_answer,
+                            )
+                            score_pct = evaluation.get('score_percentage', 0)
+                            answer.points_awarded = int(
+                                (score_pct / 100) * answer.question.points
+                            )
+                            answer.is_correct = score_pct >= 60
+                            answer.feedback = evaluation.get('feedback', '')
+                            answer.status = 'graded'
+                            answer.save()
+                        except Exception as e:
+                            logger.warning('AI essay grading failed, keeping needs_review: %s', e)
+
             # Calculate total score
             student_exam.score = student_exam.calculate_score()
             student_exam.save()
@@ -351,9 +391,15 @@ def submit_exam(request):
             'error': '未找到可提交的考试记录'
         }, status=400)
     except Exception as e:
+        logger.exception('submit_exam failed')
+        if getattr(settings, 'DEBUG', False):
+            return JsonResponse({
+                'success': False,
+                'error': str(e)
+            }, status=400)
         return JsonResponse({
             'success': False,
-            'error': str(e)
+            'error': '交卷失败，请重试'
         }, status=400)
 
 

@@ -163,27 +163,20 @@ pytest --cov=apps
 ### AI Agent Commands
 
 ```bash
-# Generate lesson content for a topic
+# Generate lesson content for a topic (saved as Course→Chapter→Lesson→Cells)
 python manage.py generate_lesson "Variables and Data Types" --difficulty beginner --settings=config.settings.development
 
-# Generate coding exercises
+# Ground the lesson in real ClassLib notebook material (uses the shared parser)
+python manage.py generate_lesson "数字常量" --notebook 第一课_基本数据结构.ipynb --section 1.1 --settings=config.settings.development
+
+# Generate coding exercises (function-based test cases + hints)
 python manage.py generate_exercises --topic "Functions" --count 5 --difficulty intermediate --settings=config.settings.development
 
-# Generate exam questions
-python manage.py generate_exam --course "python-basics" --question-count 20 --settings=config.settings.development
-
-# Generate Manim video script for a topic
-python manage.py generate_video_script "List Comprehensions" --difficulty intermediate --settings=config.settings.development
-
-# Execute Manim script and generate video
-python manage.py render_manim_video --script-id 123 --quality medium --settings=config.settings.development
-
-# Batch generate content (async with Celery)
-python manage.py batch_generate_content --course-id 1 --settings=config.settings.development
-
-# Test AI agent connectivity
-python manage.py test_ai_agents --settings=config.settings.development
+# Generate exam questions (saved as DRAFT — instructor must review/publish)
+python manage.py generate_exam --course python-basics --question-count 20 --settings=config.settings.development
 ```
+
+Planned (not yet implemented): `generate_video_script`, `render_manim_video`, `batch_generate_content`, `test_ai_agents`.
 
 ### Notebook & Video Commands
 
@@ -530,11 +523,12 @@ Create a `.env` file based on `.env.example`:
   - ✅ AJAX-based conversation management
   - ✅ Custom API endpoint support
 - ✅ **AI Agent System**:
-  - ✅ Base agent class with Anthropic API integration
-  - ✅ Learning agent (lesson generation)
-  - ✅ Training agent (exercise generation)
-  - ✅ Examination agent (question generation & evaluation)
+  - ✅ Base agent class with Anthropic API integration (custom base URL support, temperature/max_tokens overrides)
+  - ✅ Learning agent (lesson generation, wired to `generate_lesson` command, optional notebook grounding)
+  - ✅ Training agent (exercise generation with function-based test cases + hints, wired to `generate_exercises`)
+  - ✅ Examination agent (question generation wired to `generate_exam` — drafts only; essay answers AI-graded on exam submit when an API key is configured)
   - ✅ Custom API base URL support
+  - ✅ 46 regression tests (sandbox escapes, grading, auth, permissions, XSS filter, AI tool loop) — run via `pytest` or `manage.py test`
 
 **In Progress/Pending:**
 - ⏳ Version control and undo/redo for cells

@@ -328,6 +328,16 @@ Celery（无 celery.py 应用、无 tasks.py、无 `.delay()`）、DRF（零 ser
 
 ## 进度记录
 
+- **2026-09-16**：P2 收尾 + P3 AI Agent 接线
+  - ✅ **P2-1 完成**：新增 `pytest.ini` + 根目录 `conftest.py`（`django.setup()`），`pytest` 命令真实可用（CLAUDE.md 承诺的工作流恢复），**46 个测试 pytest 全通过**；`manage.py test` 同样可用
+  - ✅ **P2-2 完成**：base.html 移除从未使用的 HTMX 与 CodeMirror CDN 引入（v5 风格脚本对 v6 无效）；requirements.txt 清理未用依赖（allauth/markdownx/jupyterlab/locust/docker SDK）并对齐实际环境版本（Django 5.2.8 / anthropic 0.75.0，未实现部分加注释标注）；删除孤立的 MARKDOWNX 配置
+  - ✅ **P2-4 完成**：训练提交、考试交卷/保存答案的错误响应按 DEBUG 开关脱敏 + 日志记录
+  - ✅ **P2-8 补完**：`video_cell` 接受 `manim_generated`（编辑器选项与校验枚举对齐，Manim 视频单元格保存不再必失败）；考试 `save_answer` 校验 answer_data 形状与 100KB 上限；`submit_solution` 提前拒绝超长代码；`ExerciseListView` 加登录要求 + 难度按 beginner→intermediate→advanced 排序（Case/When 注解）；`TIME_ZONE` 改 `Asia/Shanghai`、`LANGUAGE_CODE` 改 `zh-hans`
+  - ✅ **P3 起步——AI Agent 接线**：
+    - `apps/ai_agents` 注册为 Django app（新增 apps.py）
+    - 新增 3 个管理命令：`generate_lesson`（可 `--notebook/--section` 用共享解析器取真实素材接地）、`generate_exercises`（函数式测试用例 + 提示）、`generate_exam`（**保存为草稿**，符合"考题必须人工审核"原则）
+    - 修复 `TrainingAgent` 提示词两个 bug：f-string 单花括号（Python ≤3.11 语法错误、3.12+ 被当表达式求值）与测试用例格式错配（`expected_output` → 函数式 `expected`）
+    - **作文 AI 评分接入**：交卷时简答题由 `ExaminationAgent.evaluate_essay_answer` 评分（未配置 API key 时自动保持 `needs_review` 人工审核）
 - **2026-09-16**：完成剩余 P1 主体 + 多项 P2
   - ✅ **P1-4 已修复**：训练积分防刷——同一 (student, exercise) 首次通过才加分/计完成数，重复提交只更新记录不重复奖励；判分/统计更新走 `transaction.atomic` + `select_for_update` + `F()` 表达式（并发不丢计数）；提示扣分统一按实际 `points_penalty` 累加（不再硬编码 ×2）；`view_hint` 扣分改原子 `F()` + `Greatest(...,0)` 防负分
   - ✅ **P1-7 已修复**：wsgi/asgi 指向 `config.settings.production`；production 强制校验 SECRET_KEY（占位符直接报错）；自动创建 `logs/` 目录；Sentry `send_default_pii=False`；`LOGIN_REDIRECT_URL` 修正为 `/accounts/dashboard/`；development 移除 `'*'` ALLOWED_HOSTS 与死 CORS 配置；`.env.example` 补充 `ANTHROPIC_BASE_URL`
