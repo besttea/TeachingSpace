@@ -241,6 +241,28 @@
         </div>
     </div>
 
+    <!-- 学习日历（近 90 天活跃热力图） -->
+    <div class="card shadow-sm mt-4">
+        <div class="card-header bg-white">
+            <h5 class="mb-0"><i class="bi bi-calendar-heart"></i> 学习日历（近 90 天）</h5>
+        </div>
+        <div class="card-body">
+            <div class="d-flex flex-wrap" style="gap: 3px; max-width: 720px;">
+                {% for day in activity %}
+                <div title="{{ day.date|date:'Y-m-d' }}：{{ day.count }} 次活动"
+                     style="width: 12px; height: 12px; border-radius: 2px;
+                            background: {% if day.count >= 3 %}#1a7f37{% elif day.count == 2 %}#40c463{% elif day.count == 1 %}#9be9a8{% else %}#eaecef{% endif %};"></div>
+                {% endfor %}
+            </div>
+            <div class="text-muted small mt-2">
+                颜色越深活动越多（学习、提交、考试均计入）
+                <span style="display:inline-block; width:12px; height:12px; background:#9be9a8; border-radius:2px;"></span> 1 次
+                <span style="display:inline-block; width:12px; height:12px; background:#40c463; border-radius:2px;"></span> 2 次
+                <span style="display:inline-block; width:12px; height:12px; background:#1a7f37; border-radius:2px;"></span> 3+ 次
+            </div>
+        </div>
+    </div>
+
     {% elif user.user_type == 'instructor' %}
     <!-- Instructor Dashboard -->
 

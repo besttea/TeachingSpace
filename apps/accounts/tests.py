@@ -140,3 +140,45 @@ class RateLimitDecoratorTests(SimpleTestCase):
         r2.user = type('U', (), {'id': 2, 'is_authenticated': True})()
         self.assertEqual(view(r1).status_code, 200)
         self.assertEqual(view(r2).status_code, 200)  # different user, unaffected
+
+
+class DashboardActivityTests(TestCase):
+    """C: 90-day learning calendar data on the student dashboard."""
+
+    def setUp(self):
+        self.student = User.objects.create_user(
+            username='cal_student', email='cls@example.com',
+            password='StrongPass123!', user_type='student')
+        StudentProfile.objects.create(user=self.student)
+
+    def test_activity_includes_actions(self):
+        from apps.learning.models import Course, Enrollment
+        from apps.training.models import Exercise, Submission
+        from apps.examination.models import Exam, StudentExam
+        from django.utils import timezone
+
+        instructor = User.objects.create_user(
+            username='cal_teacher', email='clt@example.com',
+            password='StrongPass123!', user_type='instructor')
+        course = Course.objects.create(
+            title='CAL', description='x', instructor=instructor, is_published=True)
+        Enrollment.objects.create(student=self.student, course=course)
+        exercise = Exercise.objects.create(
+            title='E', description='d', solution_code='x',
+            test_cases=[{'input': 'f()', 'expected': 1}])
+        Submission.objects.create(exercise=exercise, student=self.student, code='x')
+        exam = Exam.objects.create(
+            title='X', description='x', duration_minutes=10,
+            passing_score=60, max_attempts=1, is_published=True,
+            created_by=instructor)
+        StudentExam.objects.create(
+            student=self.student, exam=exam, attempt_number=1,
+            time_remaining_seconds=600, score=100, is_submitted=True)
+
+        self.client.force_login(self.student)
+        response = self.client.get(reverse('accounts:dashboard'))
+        self.assertEqual(response.status_code, 200)
+        # today's square carries a title with the count (at least 2 actions)
+        self.assertContains(response, '学习日历')
+        content = response.content.decode()
+        self.assertIn('次活动', content)

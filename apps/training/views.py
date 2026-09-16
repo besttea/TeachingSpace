@@ -534,12 +534,28 @@ def submission_history(request, slug):
 
 @login_required
 def submission_detail(request, pk):
-    """View details of a specific submission"""
+    """View details of a specific submission.
+
+    Instructors/staff also see a plagiarism hint: max code similarity of
+    this submission vs other students' submissions of the same exercise.
+    """
     submission = get_object_or_404(Submission, pk=pk, student=request.user)
 
     context = {
-        'submission': submission
+        'submission': submission,
+        'similarity': None,
     }
+    if request.user.is_staff or request.user.user_type == 'instructor':
+        from difflib import SequenceMatcher
+        others = Submission.objects.filter(
+            exercise=submission.exercise
+        ).exclude(pk=submission.pk).values_list('code', flat=True)
+        best = 0.0
+        for other_code in others:
+            ratio = SequenceMatcher(None, submission.code, other_code).ratio()
+            best = max(best, ratio)
+        if best >= 0.7 and others:
+            context['similarity'] = round(best * 100)
 
     return render(request, 'training/submission_detail.html', context)
 

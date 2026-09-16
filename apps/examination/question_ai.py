@@ -85,6 +85,47 @@ def recompute_exam_scores(exam) -> int:
     return updated
 
 
+def clone_question(source: 'Question', target_exam, order: int):
+    """Clone a question (with its specific record) into another exam.
+
+    Used by assemble_exam; code questions must be validated by the caller.
+    """
+    from apps.examination.models import (
+        CodeQuestion, EssayQuestion, MultipleChoiceQuestion,
+        Question, TrueFalseQuestion,
+    )
+
+    question = Question.objects.create(
+        exam=target_exam,
+        question_type=source.question_type,
+        question_text=source.question_text,
+        points=source.points,
+        difficulty=source.difficulty,
+        order=order,
+    )
+    specific = source.get_specific_question()
+    if isinstance(specific, MultipleChoiceQuestion):
+        MultipleChoiceQuestion.objects.create(
+            question=question, options=specific.options,
+            correct_answer=specific.correct_answer,
+            explanation=specific.explanation)
+    elif isinstance(specific, TrueFalseQuestion):
+        TrueFalseQuestion.objects.create(
+            question=question, correct_answer=specific.correct_answer,
+            explanation=specific.explanation)
+    elif isinstance(specific, CodeQuestion):
+        CodeQuestion.objects.create(
+            question=question, starter_code=specific.starter_code,
+            solution_code=specific.solution_code,
+            test_cases=specific.test_cases,
+            explanation=specific.explanation)
+    elif isinstance(specific, EssayQuestion):
+        EssayQuestion.objects.create(
+            question=question, word_limit=specific.word_limit,
+            rubric=specific.rubric, sample_answer=specific.sample_answer)
+    return question
+
+
 def validate_code_question(updated: dict):
     """Sandbox-validate an updated code question (solution vs test cases).
 

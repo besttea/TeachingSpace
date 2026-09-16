@@ -235,6 +235,31 @@ def dashboard_view(request):
         ).count()
         context['recent_activity'] = recent_activity
 
+        # Learning calendar: activity counts per day over the last 90 days
+        from collections import Counter
+        ninety_days_ago = timezone.now().date() - timedelta(days=89)
+        activity_counts = Counter()
+        for day in LessonProgress.objects.filter(
+            enrollment__student=request.user,
+            last_accessed__date__gte=ninety_days_ago
+        ).values_list('last_accessed__date', flat=True):
+            activity_counts[day] += 1
+        for day in Submission.objects.filter(
+            student=request.user,
+            submitted_at__date__gte=ninety_days_ago
+        ).values_list('submitted_at__date', flat=True):
+            activity_counts[day] += 1
+        for day in StudentExam.objects.filter(
+            student=request.user, is_submitted=True,
+            start_time__date__gte=ninety_days_ago
+        ).values_list('start_time__date', flat=True):
+            activity_counts[day] += 1
+        activity = []
+        for offset in range(90):
+            day = ninety_days_ago + timedelta(days=offset)
+            activity.append({'date': day, 'count': activity_counts.get(day, 0)})
+        context['activity'] = activity
+
     # Instructor-specific data
     elif request.user.user_type == 'instructor':
         from apps.learning.models import Course

@@ -37,6 +37,11 @@
                     <span class="badge bg-{% if submission.status == 'passed' %}success{% elif submission.status == 'failed' %}danger{% else %}secondary{% endif %} fs-6">
                         {{ submission.get_status_display }}
                     </span>
+                    {% if similarity %}
+                    <span class="badge bg-warning text-dark ms-2" title="与其他提交的代码相似度">
+                        <i class="bi bi-exclamation-triangle"></i> 疑似雷同 {{ similarity }}%
+                    </span>
+                    {% endif %}
                 </div>
                 <div class="col-md-3">
                     <h6 class="text-muted">Tests Passed</h6>
