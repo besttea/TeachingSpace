@@ -227,6 +227,10 @@
                                     <span class="badge bg-warning">{{ lesson.get_status_display }}</span>
                                     {% endif %}
                                     {% if can_edit %}
+                                    <a href="{% url 'learning:lesson-detail' lesson.pk %}" class="btn btn-sm btn-outline-secondary ms-1"
+                                       title="以学生视角预览（草稿仅教师可见）">
+                                        <i class="bi bi-eye"></i> 预览
+                                    </a>
                                     <a href="{% url 'learning:lesson-edit' lesson.pk %}" class="btn btn-sm btn-outline-primary ms-1"
                                        title="在笔记本编辑器中修改内容">
                                         <i class="bi bi-pencil"></i> 编辑
