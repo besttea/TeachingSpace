@@ -520,3 +520,51 @@ class LessonHeartbeatTests(TestCase):
             reverse('learning:lesson-heartbeat', args=[self.lesson.id]),
             data=json.dumps({'seconds': 60}), content_type='application/json')
         self.assertEqual(response.status_code, 403)
+
+
+class LessonGenerateStatusTests(TestCase):
+    """Async generation status polling (eager mode writes cache status)."""
+
+    def setUp(self):
+        from unittest import mock as _mock
+        self.instructor = User.objects.create_user(
+            username='genstatus_teacher', email='gst@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.course = Course.objects.create(
+            title='GS', description='x', instructor=self.instructor)
+        self.chapter = Chapter.objects.create(course=self.course, title='Ch', order=0)
+        self.lesson = Lesson.objects.create(
+            chapter=self.chapter, title='L', status='draft', order=0)
+
+        patcher = _mock.patch('apps.ai_agents.ai_config.is_configured', return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.mock_agent = _mock.patch(
+            'apps.ai_agents.learning_agent.LearningAgent.generate_lesson_content',
+            return_value={'cells': [{'type': 'text', 'content': '# x'}]})
+        self.mock_agent.start()
+        self.addCleanup(self.mock_agent.stop)
+
+        from django.core.cache import cache
+        cache.clear()
+
+    def test_status_none_before_generation(self):
+        self.client.force_login(self.instructor)
+        response = self.client.get(
+            reverse('learning:lesson-generate-status', args=[self.lesson.id]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status']['status'], 'none')
+
+    def test_eager_generation_publishes_done(self):
+        self.client.force_login(self.instructor)
+        response = self.client.post(
+            reverse('learning:lesson-ai-generate', args=[self.lesson.id]),
+            data=json.dumps({}), content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()['success'])
+
+        status_resp = self.client.get(
+            reverse('learning:lesson-generate-status', args=[self.lesson.id]))
+        status = status_resp.json()['status']
+        self.assertEqual(status['status'], 'done')
+        self.assertGreaterEqual(status['cell_count'], 1)

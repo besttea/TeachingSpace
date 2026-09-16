@@ -361,7 +361,7 @@
         });
     }
 
-    // AI 内容生成：单个课程单元
+    // AI 内容生成：单个课程单元（支持异步排队 + 轮询）
     async function generateLesson(lessonId) {
         const btn = document.getElementById(`gen-btn-${lessonId}`);
         const badge = document.getElementById(`cell-badge-${lessonId}`);
@@ -376,6 +376,11 @@
                 body: JSON.stringify({})
             });
             const data = await response.json();
+
+            if (data.queued) {
+                await pollGeneration(lessonId, btn, badge);
+                return;
+            }
             if (data.success) {
                 if (badge) {
                     badge.className = 'badge bg-success bg-opacity-25 text-success';
@@ -396,6 +401,35 @@
         } finally {
             btn.disabled = false;
         }
+    }
+
+    // 轮询异步生成进度
+    async function pollGeneration(lessonId, btn, badge) {
+        for (let attempt = 0; attempt < 60; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            try {
+                const resp = await fetch(`/learning/api/lessons/${lessonId}/generate-status/`);
+                const statusData = await resp.json();
+                const status = statusData.status || {};
+                if (status.status === 'done') {
+                    if (badge) {
+                        badge.className = 'badge bg-success bg-opacity-25 text-success';
+                        badge.textContent = `${status.cell_count} 单元格` + (status.grounded ? '（素材接地）' : '');
+                    }
+                    btn.className = 'btn btn-sm btn-outline-warning ms-1';
+                    btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> 重新生成';
+                    return;
+                }
+                if (status.status === 'error') {
+                    alert('生成失败: ' + (status.error || '请重试'));
+                    btn.innerHTML = '<i class="bi bi-magic"></i> AI 生成';
+                    return;
+                }
+                btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 生成中…';
+            } catch (e) { /* transient — keep polling */ }
+        }
+        alert('生成超时，请稍后在页面刷新查看结果。');
+        btn.innerHTML = '<i class="bi bi-magic"></i> AI 生成';
     }
 
     // AI 内容生成：整章流程（无课程单元时先规划，再逐个填充内容）

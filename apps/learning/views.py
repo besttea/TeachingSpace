@@ -409,51 +409,39 @@ def instructor_lesson_generate(request, pk):
         if not is_configured():
             return JsonResponse({'error': 'AI 服务未配置（缺少 API 密钥）'}, status=400)
 
-        from apps.ai_agents.learning_agent import LearningAgent
-        from apps.chat.notebook_tools import find_related_sections
+        # Async via Celery when a broker is configured; inline otherwise
+        # (dev eager mode). The frontend polls lesson-gen-status while queued.
+        from celery import current_app
+        from .tasks import generate_lesson_cells_task
 
-        # Auto-ground in ClassLib material matching the course + lesson topic
-        query = f'{lesson.chapter.course.title} {lesson.title}'
-        source_material = find_related_sections(query)
-
-        generated = LearningAgent().generate_lesson_content(
-            topic=lesson.title,
-            difficulty=lesson.chapter.course.difficulty_level,
-            include_code=True,
-            source_material=source_material,
-        )
-        cells = generated.get('cells', [])
-        if not cells:
-            return JsonResponse({'error': 'AI 未返回课程单元内容'}, status=400)
-
-        # Replace existing cells (re-generation is idempotent)
-        with transaction.atomic():
-            lesson.cells.all().delete()
-            for order, cell in enumerate(cells):
-                cell_type = cell.get('type')
-                content = cell.get('content', '')
-                if cell_type == 'code':
-                    Cell.objects.create(
-                        lesson=lesson, cell_type='code', order=order,
-                        data={'source': content, 'output': '',
-                              'execution_count': 0},
-                        created_by=request.user)
-                else:
-                    Cell.objects.create(
-                        lesson=lesson, cell_type='text', order=order,
-                        data={'markdown': content},
-                        created_by=request.user)
-
+        task = generate_lesson_cells_task.delay(lesson.id)
+        if current_app.conf.task_always_eager:
+            return JsonResponse({
+                'success': True, 'queued': False,
+                'cell_count': lesson.cells.count(),
+                'message': '已生成',
+            })
         return JsonResponse({
-            'success': True,
-            'cell_count': len(cells),
-            'grounded': bool(source_material),
-            'message': f'已生成 {len(cells)} 个单元格'
-                       + ('（已用 ClassLib 素材接地）' if source_material else ''),
+            'success': True, 'queued': True,
+            'message': '生成任务已提交，前端将轮询进度',
         })
 
     except Exception as e:
         return _error_response(e)
+
+
+@login_required
+@require_http_methods(["GET"])
+def lesson_generate_status(request, pk):
+    """Poll the AI generation task status (async mode)."""
+    lesson = get_object_or_404(Lesson, pk=pk)
+    if not _can_edit_lesson(request.user, lesson):
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    from .tasks import lesson_gen_status
+    status = lesson_gen_status(lesson.id)
+    if status.get('status') == 'done':
+        status['cell_count'] = lesson.cells.count()
+    return JsonResponse({'success': True, 'status': status})
 
 
 @login_required

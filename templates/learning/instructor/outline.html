@@ -105,6 +105,11 @@
                 body: JSON.stringify({})
             });
             const data = await response.json();
+
+            if (data.queued) {
+                await pollGeneration(lessonId, btn, badge);
+                return;
+            }
             if (data.success) {
                 badge.className = 'badge bg-success bg-opacity-25 text-success';
                 badge.textContent = `${data.cell_count} 个单元格` + (data.grounded ? '（素材接地）' : '');
@@ -120,6 +125,33 @@
         } finally {
             btn.disabled = false;
         }
+    }
+
+    // 轮询异步生成进度
+    async function pollGeneration(lessonId, btn, badge) {
+        for (let attempt = 0; attempt < 60; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            try {
+                const resp = await fetch(`/learning/api/lessons/${lessonId}/generate-status/`);
+                const statusData = await resp.json();
+                const status = statusData.status || {};
+                if (status.status === 'done') {
+                    badge.className = 'badge bg-success bg-opacity-25 text-success';
+                    badge.textContent = `${status.cell_count} 个单元格` + (status.grounded ? '（素材接地）' : '');
+                    btn.className = 'btn btn-sm btn-outline-warning';
+                    btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> 重新生成';
+                    return;
+                }
+                if (status.status === 'error') {
+                    alert('生成失败: ' + (status.error || '请重试'));
+                    btn.innerHTML = '<i class="bi bi-magic"></i> 生成内容';
+                    return;
+                }
+                btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 生成中…';
+            } catch (e) { /* transient — keep polling */ }
+        }
+        alert('生成超时，请稍后在页面刷新查看结果。');
+        btn.innerHTML = '<i class="bi bi-magic"></i> 生成内容';
     }
 
     async function generateAll() {
