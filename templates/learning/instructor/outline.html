@@ -39,6 +39,12 @@
         <span id="progressText">正在生成…</span>
     </div>
 
+    <!-- 课程大纲 AI 生成中（异步任务轮询） -->
+    <div id="designBanner" class="alert alert-info d-none">
+        <i class="bi bi-stars"></i>
+        <span id="designBannerText">AI 正在生成课程大纲，请稍候…</span>
+    </div>
+
     {% for item in chapters %}
     <div class="card mb-3">
         <div class="card-header bg-light">
@@ -92,6 +98,37 @@
 </div>
 
 <script>
+    // 大纲异步生成轮询：running → 每 3 秒查状态，完成后刷新
+    (async function pollDesignStatus() {
+        const chapters = document.querySelectorAll('.card.mb-3').length;
+        if (chapters > 0) return;  // 大纲已就绪
+        const banner = document.getElementById('designBanner');
+        for (let attempt = 0; attempt < 100; attempt++) {
+            try {
+                const resp = await fetch(`/learning/api/courses/{{ course.id }}/design-status/`);
+                const data = await resp.json();
+                const status = (data.status || {}).status;
+                if (status === 'running') {
+                    banner.classList.remove('d-none');
+                    banner.classList.add('alert-info');
+                    document.getElementById('designBannerText').textContent =
+                        'AI 正在生成课程大纲，请稍候…';
+                } else if (status === 'done') {
+                    location.reload();
+                    return;
+                } else if (status === 'error') {
+                    banner.classList.remove('d-none');
+                    banner.classList.remove('alert-info');
+                    banner.classList.add('alert-danger');
+                    document.getElementById('designBannerText').textContent =
+                        '大纲生成失败，可手动添加章节：' + ((data.status || {}).error || '');
+                    return;
+                }
+            } catch (e) { /* transient */ }
+            await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+    })();
+
     async function generateLesson(lessonId) {
         const btn = document.getElementById(`gen-btn-${lessonId}`);
         const badge = document.getElementById(`cell-badge-${lessonId}`);

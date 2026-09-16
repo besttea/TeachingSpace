@@ -310,7 +310,7 @@ def instructor_course_create(request):
             is_published=False,  # publish explicitly when ready
         )
 
-        # ---- AI-assisted design flow ----
+        # ---- AI-assisted design flow (async task + outline-page polling) ----
         if request.POST.get('ai_design') == 'on':
             from apps.ai_agents.ai_config import is_configured
             if not is_configured():
@@ -319,68 +319,37 @@ def instructor_course_create(request):
                              '配置后可在课程详情页添加章节/课程单元')
                 return redirect('learning:instructor-course-manage', slug=course.slug)
 
-            try:
-                from apps.ai_agents.skills import CourseSkill
-                from apps.chat.notebook_tools import find_related_sections
+            from celery import current_app
+            from .tasks import design_course_outline_task
 
-                chapter_count = int(request.POST.get('chapter_count', 3) or 3)
-                use_material = request.POST.get('use_classlib') == 'on'
-
-                source_material = ''
-                if use_material:
-                    source_material = find_related_sections(title)
-                    if source_material:
-                        messages.success(
-                            request, f'已在 ClassLib 中找到与《{title}》相关的教学素材，'
-                                     f'大纲与内容将基于素材生成')
-
-                # Harness CourseSkill: planner-role outline (content off — the
-                # instructor fills it per chapter on the course page)
-                outline = CourseSkill().run(
-                    topic=title,
-                    difficulty=difficulty,
-                    chapter_count=chapter_count,
-                    source_material=source_material,
-                    with_content=False,
-                )
-
-                created = 0
-                for chapter_index, chapter_data in enumerate(outline.get('chapters', [])):
-                    chapter = Chapter.objects.create(
-                        course=course,
-                        title=chapter_data.get('title') or f'第{chapter_index + 1}章',
-                        description=chapter_data.get('description', ''),
-                        order=chapter_index,
-                    )
-                    for lesson_index, lesson_data in enumerate(
-                            chapter_data.get('lessons', [])):
-                        Lesson.objects.create(
-                            chapter=chapter,
-                            title=lesson_data.get('title') or f'课程单元 {lesson_index + 1}',
-                            description=lesson_data.get('description', ''),
-                            status='draft',
-                            order=lesson_index,
-                            created_by=request.user,
-                        )
-                        created += 1
-
+            design_course_outline_task.delay(course.id)
+            if current_app.conf.task_always_eager:
                 messages.success(
-                    request, f'AI 已生成课程大纲：{len(outline.get("chapters", []))} 章 '
-                             f'{created} 个课程单元。请在下方为每个单元生成内容。')
-                return redirect('learning:instructor-course-outline', slug=course.slug)
-
-            except Exception as e:
-                logger.exception('AI course design failed')
-                messages.warning(
-                    request, f'AI 大纲生成失败（{e if settings.DEBUG else "请重试"}），'
-                             f'已创建空课程，可手动添加章节')
-                return redirect('learning:instructor-course-manage', slug=course.slug)
+                    request, 'AI 已生成课程大纲。请在下方为每个单元生成内容。')
+            else:
+                messages.info(
+                    request, 'AI 正在生成课程大纲…页面会自动刷新显示结果。')
+            return redirect('learning:instructor-course-outline', slug=course.slug)
 
         bump_content_version()
         messages.success(request, f'课程《{course.title}》已创建（草稿状态，学生不可见）')
         return redirect('learning:instructor-course-manage', slug=course.slug)
     except Exception as e:
         return _error_response(e)
+
+
+@login_required
+@require_http_methods(["GET"])
+def course_design_status_view(request, pk):
+    """Poll the AI course-outline design task (async mode)."""
+    course = get_object_or_404(Course, pk=pk)
+    if not (request.user == course.instructor or request.user.is_staff):
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    from .tasks import course_design_status
+    status = course_design_status(course.id)
+    if status.get('status') == 'done':
+        status['chapter_count'] = course.chapters.count()
+    return JsonResponse({'success': True, 'status': status})
 
 
 class CourseOutlineView(LoginRequiredMixin, UserPassesTestMixin, DetailView):

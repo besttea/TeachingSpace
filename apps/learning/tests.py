@@ -636,3 +636,46 @@ class RosterCsvExportTests(TestCase):
         content = response.content.decode('utf-8-sig')
         self.assertIn('csv_student', content)
         self.assertIn('用户名', content)
+
+
+class CourseDesignStatusTests(TestCase):
+    """Async course-outline design status endpoint (eager task writes cache)."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.instructor = User.objects.create_user(
+            username='design_teacher', email='det@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.course = Course.objects.create(
+            title='DS', description='x', instructor=self.instructor)
+
+    def test_status_none_initially(self):
+        self.client.force_login(self.instructor)
+        response = self.client.get(
+            reverse('learning:course-design-status', args=[self.course.id]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status']['status'], 'none')
+
+    def test_eager_design_publishes_done(self):
+        from unittest import mock as _mock
+        with _mock.patch('apps.ai_agents.ai_config.is_configured', return_value=True), \
+             _mock.patch('apps.ai_agents.skills.CourseSkill.run', return_value={
+                 'chapters': [{'title': '第1章', 'description': 'd',
+                               'lessons': [{'title': '1.1 入门', 'description': 'l'}]}],
+                 'lesson_count': 1}):
+            self.client.force_login(self.instructor)
+            response = self.client.post(
+                reverse('learning:instructor-course-create'),
+                {'title': 'DS2', 'description': 'x', 'difficulty': 'beginner',
+                 'ai_design': 'on', 'chapter_count': '1', 'use_classlib': 'off'})
+            self.assertEqual(response.status_code, 302)
+        course2 = Course.objects.get(title='DS2')
+        self.assertEqual(course2.chapters.count(), 1)
+
+        self.client.force_login(self.instructor)
+        status_resp = self.client.get(
+            reverse('learning:course-design-status', args=[course2.id]))
+        status = status_resp.json()['status']
+        self.assertEqual(status['status'], 'done')
+        self.assertEqual(status['chapter_count'], 1)

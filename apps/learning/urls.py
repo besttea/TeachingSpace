@@ -22,6 +22,7 @@ urlpatterns = [
     path('instructor/course/<slug:slug>/students/', views.StudentRosterView.as_view(), name='instructor-student-roster'),
     path('instructor/course/<slug:slug>/publish/', views.instructor_course_publish, name='instructor-course-publish'),
     path('instructor/course/<slug:slug>/outline/', views.CourseOutlineView.as_view(), name='instructor-course-outline'),
+    path('api/courses/<int:pk>/design-status/', views.course_design_status_view, name='course-design-status'),
     path('api/lessons/<int:pk>/ai-generate/', views.instructor_lesson_generate, name='lesson-ai-generate'),
     path('api/lessons/<int:pk>/generate-status/', views.lesson_generate_status, name='lesson-generate-status'),
     path('api/chapters/<int:pk>/ai-plan/', views.instructor_chapter_ai_plan, name='chapter-ai-plan'),
