@@ -414,7 +414,7 @@ def instructor_lesson_generate(request, pk):
         from celery import current_app
         from .tasks import generate_lesson_cells_task
 
-        task = generate_lesson_cells_task.delay(lesson.id)
+        generate_lesson_cells_task.delay(lesson.id)
         if current_app.conf.task_always_eager:
             return JsonResponse({
                 'success': True, 'queued': False,
