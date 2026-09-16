@@ -66,6 +66,13 @@ def send_message(request):
                 'error': 'Message cannot be empty'
             }, status=400)
 
+        # T17: server-side input length cap
+        if len(user_message) > 4000:
+            return JsonResponse({
+                'success': False,
+                'error': '消息过长（最多 4000 字符）'
+            }, status=400)
+
         # Get or create conversation
         if conversation_id:
             conversation = get_object_or_404(

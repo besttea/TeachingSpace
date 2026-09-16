@@ -251,18 +251,39 @@ class ChatAIService:
         }
 
     def _extract_suggestions(self, response_text: str, resources: List[Dict]) -> List[Dict]:
-        """Extract resource suggestions from AI response"""
-        suggestions = []
+        """Extract resource suggestions from the AI response.
 
-        # Simple extraction - look for filenames mentioned in response
+        Matches notebook filenames AND section labels (e.g. '1.2 标准数据
+        类型') mentioned in the answer — T18: structured-ish matching on
+        the platform's real material registry.
+        """
+        suggestions = []
+        seen = set()
+
+        candidates = []  # (match_text, title, filename)
         for resource in resources:
             filename = resource.get('filename', '')
-            if filename and filename in response_text:
+            if filename:
+                candidates.append((filename, resource.get('title', filename), filename))
+        # Notebook sections (from the shared material registry)
+        try:
+            from .notebook_tools import list_notebooks
+            for notebook in list_notebooks().get('notebooks', []):
+                for section in notebook.get('sections', []):
+                    if section:
+                        candidates.append(
+                            (section, f'{notebook.get("title", notebook["filename"])} · {section}',
+                             notebook['filename']))
+        except Exception:
+            pass  # suggestions are best-effort
+
+        for match_text, title, filename in candidates:
+            if match_text and match_text in response_text and filename not in seen:
+                seen.add(filename)
                 suggestions.append({
                     'filename': filename,
-                    'title': resource.get('title', filename),
-                    'description': resource.get('description', ''),
-                    'topics': resource.get('topics', [])
+                    'title': title,
+                    'description': '',
+                    'topics': [],
                 })
-
-        return suggestions
+        return suggestions[:5]

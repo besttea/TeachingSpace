@@ -5,9 +5,13 @@ Covers:
 - the ChatAIService tool-use loop (with a mocked Anthropic client)
 """
 
+import json
 from types import SimpleNamespace
 
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.urls import reverse
+
+from apps.accounts.models import User
 
 from .ai_service import ChatAIService
 from .notebook_tools import execute_tool, get_notebook_digest, get_notebook_section, list_notebooks
@@ -159,3 +163,29 @@ class ChatAIServiceToolLoopTests(TestCase):
             result = service.generate_response('你好')
         self.assertFalse(result['success'])
         self.assertIn('secret internal detail', result['response'])
+
+
+class InputLimitAndSuggestionsTests(TestCase):
+    """T17/T18: message length cap and section-aware suggestions."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='chat_limiter', email='cl@example.com',
+            password='StrongPass123!', user_type='student')
+
+    def test_long_message_rejected(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse('chat:send-message'),
+            data=json.dumps({'message': 'x' * 5000}),
+            content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('过长', response.json()['error'])
+
+    def test_section_label_suggestion(self):
+        from .ai_service import ChatAIService
+        service = ChatAIService(client='sentinel')  # bypass client build
+        response_text = '根据《第一课》的 1.2 标准数据类型 一节，列表是可变的……'
+        suggestions = service._extract_suggestions(response_text, [])
+        self.assertTrue(any('1.2' in s['title'] for s in suggestions))
+        self.assertEqual(suggestions[0]['filename'], '第一课_基本数据结构.ipynb')
