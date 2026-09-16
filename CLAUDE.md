@@ -517,7 +517,7 @@ Create a `.env` file based on `.env.example`:
 - ✅ Training app models and views
 - ✅ Examination app models and views
 - ✅ Certificate PDF generation (reportlab + STSong-Light CJK font, lazy on-demand download, public verification-code page, 403 for non-passing attempts)
-- ✅ Code execution engine (RestrictedPython with dual-mode testing)
+- ✅ Code execution engine (subprocess isolation by default; Docker full isolation via `CODE_EXECUTION_BACKEND=docker` — image built & verified; dual-mode testing)
 - ✅ **AI Chat Assistant**:
   - ✅ Chat interface with conversation history
   - ✅ AI-powered responses with resource recommendations
@@ -532,23 +532,22 @@ Create a `.env` file based on `.env.example`:
   - ✅ 46 regression tests (sandbox escapes, grading, auth, permissions, XSS filter, AI tool loop) — run via `pytest` or `manage.py test`
 
 **In Progress/Pending:**
-- ⏳ Version control and undo/redo for cells
-- ⏳ Export/import (PDF, standalone Python script)
 - ⏳ Frontend templates refinement
 - ⏳ **Video Generation System**:
-  - ⏳ Manim integration and rendering pipeline
-  - ⏳ AI video script generation (Video Agent)
+  - ✅ Manim integration and rendering pipeline (`script_validator` + `manim_engine`, real-render verified)
+  - ✅ AI video script generation (Video Agent + `generate_video_script` command)
   - ⏳ Async video rendering with Celery
   - ⏳ Video storage and CDN integration
   - ⏳ Thumbnail generation
   - ⏳ Video cell display and playback
-- ⏳ Docker configuration for isolated code execution
-- ⏳ **Advanced AI Features**:
+- ✅ Docker configuration for isolated code execution (`docker/sandbox/Dockerfile`, `CODE_EXECUTION_BACKEND=docker`, image built & verified)
+- ✅ **Advanced AI Features**:
   - ⏳ Prompt template management
   - ⏳ Content validation pipeline
-  - ⏳ AI generation tracking and analytics
-  - ⏳ Cost monitoring and rate limiting
-  - ⏳ Batch content generation
+  - ✅ AI generation tracking and analytics (`AIGenerationHistory`: prompts, tokens, cost)
+  - ✅ Cost monitoring and rate limiting (`AI_COST_LIMIT_DAILY` enforced)
+  - ✅ Batch content generation (`batch_generate_content` command)
+  - ✅ Response caching (`AI_CACHE_ENABLED`)
 
 ## Next Steps
 

@@ -463,6 +463,51 @@ def reorder_cells(request):
 
 @login_required
 @require_http_methods(["POST"])
+def restore_cell_version(request, pk, version_id):
+    """Restore a cell to a previous CellVersion snapshot (undo).
+
+    Restores cell_type + data; the cell keeps its current order (restoring
+    an old order could collide with the unique constraint). The current
+    state is snapshotted first, so the restore itself is undoable.
+    """
+    try:
+        cell = get_object_or_404(Cell, pk=pk)
+
+        if not _can_edit_lesson(request.user, cell.lesson):
+            return JsonResponse({'error': 'Permission denied'}, status=403)
+
+        version = get_object_or_404(CellVersion, pk=version_id, cell=cell)
+        snapshot = version.snapshot or {}
+
+        with transaction.atomic():
+            # Snapshot the current state so the restore can be reverted
+            CellVersion.objects.create(
+                cell=cell,
+                snapshot={
+                    'cell_type': cell.cell_type,
+                    'data': cell.data,
+                    'order': cell.order,
+                },
+                editor=request.user,
+                change_description=f'Restore of version #{version.id}'
+            )
+
+            cell.cell_type = snapshot.get('cell_type', cell.cell_type)
+            cell.data = snapshot.get('data', cell.data)
+            cell.last_edited_by = request.user
+            cell.save()
+
+        return JsonResponse({
+            'success': True,
+            'cell': {'id': cell.id, 'cell_type': cell.cell_type, 'data': cell.data}
+        })
+
+    except Exception as e:
+        return _error_response(e)
+
+
+@login_required
+@require_http_methods(["POST"])
 def mark_lesson_complete(request, pk):
     """Mark a lesson as completed"""
     try:

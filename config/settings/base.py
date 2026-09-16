@@ -158,11 +158,19 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
+# Run tasks inline when no Redis is available (default in dev); set
+# CELERY_ALWAYS_EAGER=False once a broker is running.
+CELERY_TASK_ALWAYS_EAGER = config('CELERY_ALWAYS_EAGER', default=DEBUG, cast=bool)
+CELERY_TASK_EAGER_PROPAGATES = True
 
 # Code Execution Settings
 CODE_EXECUTION_TIMEOUT = 10  # seconds
 CODE_EXECUTION_MEMORY_LIMIT = '128m'
 CODE_EXECUTION_CPU_QUOTA = 50000  # 50% of one CPU
+# Isolation backend: 'subprocess' (default) or 'docker' (full OS isolation,
+# requires the sandbox image built — see docker/sandbox/Dockerfile)
+CODE_EXECUTION_BACKEND = config('CODE_EXECUTION_BACKEND', default='subprocess')
+SANDBOX_DOCKER_IMAGE = config('SANDBOX_DOCKER_IMAGE', default='teaching-space-sandbox')
 
 # Email Configuration
 EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')

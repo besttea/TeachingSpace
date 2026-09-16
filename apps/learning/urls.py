@@ -18,6 +18,7 @@ urlpatterns = [
     path('api/cells/<int:pk>/update/', views.update_cell, name='cell-update'),
     path('api/cells/<int:pk>/delete/', views.delete_cell, name='cell-delete'),
     path('api/cells/<int:pk>/execute/', views.execute_cell, name='cell-execute'),
+    path('api/cells/<int:pk>/versions/<int:version_id>/restore/', views.restore_cell_version, name='cell-restore-version'),
     path('api/cells/reorder/', views.reorder_cells, name='cells-reorder'),
 
     # Progress tracking

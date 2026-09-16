@@ -115,6 +115,16 @@ class ChatAIService:
             return self._fallback_response(user_message, available_resources)
 
         try:
+            # Daily cost limit (optional, AI_COST_LIMIT_DAILY)
+            from apps.ai_agents.models import daily_cost_exceeded
+            if daily_cost_exceeded():
+                return {
+                    'response': '今日 AI 用量已达上限，请明天再试。',
+                    'suggested_resources': [],
+                    'success': False,
+                    'error': 'daily cost limit reached',
+                }
+
             # Build message history
             messages = []
             for msg in conversation_history:
@@ -130,6 +140,8 @@ class ChatAIService:
             # Tool-use loop: let the model query materials, then answer.
             response_text = ""
             tool_used = False
+            import time as _time
+            _start = _time.time()
             for _ in range(MAX_TOOL_ROUNDS):
                 response = self.client.messages.create(
                     model=self.model,
@@ -171,6 +183,17 @@ class ChatAIService:
 
             if not response_text:
                 response_text = "（未生成回答）"
+
+            # Audit log (tokens/cost)
+            from apps.ai_agents.models import record_generation
+            record_generation(
+                agent='chat',
+                model=self.model,
+                prompt=user_message,
+                response=response_text,
+                duration_ms=int((_time.time() - _start) * 1000),
+                success=True,
+            )
 
             # Extract suggested resources from response
             suggested_resources = self._extract_suggestions(response_text, available_resources)

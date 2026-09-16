@@ -138,8 +138,12 @@ def submit_solution(request, slug):
             hints_used=hints_used
         )
 
-        # Grade the submission (synchronous for now, can be made async with Celery later)
-        submission.grade()
+        # Grade the submission — via Celery when a broker is configured,
+        # inline otherwise (dev default). Refresh if it graded inline.
+        from .tasks import grade_submission_async
+        graded_inline = grade_submission_async(submission.id)
+        if graded_inline:
+            submission.refresh_from_db()
 
         return JsonResponse({
             'success': True,

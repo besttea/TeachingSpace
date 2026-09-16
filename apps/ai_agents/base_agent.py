@@ -2,11 +2,23 @@ import os
 import json
 import logging
 import re
+import time
+import hashlib
+
 import anthropic
 from django.conf import settings
+from django.core.cache import cache
 from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
+
+#: Cache TTL for identical prompt/model generations (seconds).
+_CACHE_TTL = 24 * 3600
+
+
+class AICostLimitExceeded(Exception):
+    """Raised when the daily AI cost limit (AI_COST_LIMIT_DAILY) is reached."""
+
 
 class BaseAgent(ABC):
     """
@@ -44,34 +56,84 @@ class BaseAgent(ABC):
         Returns:
             str: The generated content
         """
+        kwargs = {
+            "model": self.model,
+            # `or` swallows falsy values like temperature=0 — use is None
+            "max_tokens": self.max_tokens if max_tokens is None else max_tokens,
+            "temperature": self.temperature if temperature is None else temperature,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ]
+        }
+
+        if system_prompt:
+            kwargs["system"] = system_prompt
+
+        # Response cache (optional, AI_CACHE_ENABLED): identical prompt+model
+        # within the TTL returns the cached generation without an API call.
+        cache_key = None
+        if getattr(settings, 'AI_CACHE_ENABLED', False):
+            digest = hashlib.sha256(
+                f'{self.model}|{system_prompt or ""}|{prompt}'.encode('utf-8')
+            ).hexdigest()
+            cache_key = f'ai_gen:{digest}'
+            cached = cache.get(cache_key)
+            if cached:
+                return cached
+
+        # Daily cost limit (optional, AI_COST_LIMIT_DAILY)
+        from .models import daily_cost_exceeded
+        if daily_cost_exceeded():
+            raise AICostLimitExceeded('Daily AI cost limit reached')
+
+        start = time.time()
+        input_tokens = output_tokens = 0
         try:
-            kwargs = {
-                "model": self.model,
-                # `or` swallows falsy values like temperature=0 — use is None
-                "max_tokens": self.max_tokens if max_tokens is None else max_tokens,
-                "temperature": self.temperature if temperature is None else temperature,
-                "messages": [
-                    {"role": "user", "content": prompt}
-                ]
-            }
-
-            if system_prompt:
-                kwargs["system"] = system_prompt
-
             response = self.client.messages.create(**kwargs)
 
             # Join all text blocks (don't assume content[0] is text)
             text = "".join(
                 block.text for block in response.content if block.type == "text"
-            )
-            return text or response.content[0].text
+            ) or response.content[0].text
 
+            usage = getattr(response, 'usage', None)
+            if usage is not None:
+                input_tokens = usage.input_tokens
+                output_tokens = usage.output_tokens
+
+            from .models import record_generation
+            record_generation(
+                agent=self.__class__.__name__,
+                model=self.model,
+                prompt=prompt,
+                response=text,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                duration_ms=int((time.time() - start) * 1000),
+                success=True,
+            )
         except anthropic.APIError as e:
+            from .models import record_generation
+            record_generation(
+                agent=self.__class__.__name__, model=self.model,
+                prompt=prompt, duration_ms=int((time.time() - start) * 1000),
+                success=False, error=str(e),
+            )
             logger.error(f"Anthropic API Error: {str(e)}")
             raise
         except Exception as e:
+            from .models import record_generation
+            record_generation(
+                agent=self.__class__.__name__, model=self.model,
+                prompt=prompt, duration_ms=int((time.time() - start) * 1000),
+                success=False, error=str(e),
+            )
             logger.error(f"Unexpected error in AI generation: {str(e)}")
             raise
+
+        if cache_key:
+            cache.set(cache_key, text, _CACHE_TTL)
+        return text
 
     def generate_json(self, prompt, system_prompt=None):
         """

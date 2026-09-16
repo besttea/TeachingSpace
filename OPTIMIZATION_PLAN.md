@@ -328,6 +328,14 @@ Celery（无 celery.py 应用、无 tasks.py、无 `.delay()`）、DRF（零 ser
 
 ## 进度记录
 
+- **2026-09-16**：P3 全部完成（Docker 隔离 / Celery / 视频管线 / 跟踪与成本控制 / 版本恢复 / 导出）
+  - ✅ **P3-1 Docker 隔离完成**：执行器重构——runner 抽为独立文件 `apps/code_runner/sandbox_runner.py`（subprocess 与 Docker 共用单一来源）；`docker/sandbox/Dockerfile`（python:3.13-slim、非 root、ENTRYPOINT runner）；`_execute_docker` 实现（`--network none`、128m 内存、0.5 CPU、pids-limit、read-only rootfs、cap-drop ALL）；`CODE_EXECUTION_BACKEND` 设置切换。**已构建镜像并真机验证 8 项**（正常执行/白名单导入/os 拦截/gadget 链拦截/open 拦截/socket 拦截/超时 kill/双测试模式）——因 Docker Hub 直连受限使用了 DaoCloud 镜像源拉取基础镜像
+  - ✅ **P3-2 Celery 完成**：`config/celery.py` + `config/__init__.py` 经典接线（懒配置 + worker 信号里 django.setup + autodiscover，避免设置加载期的模型导入循环）；训练判分走 `grade_submission_task`（无 broker 时 eager 内联 = 零行为变化；有 broker 时后台判分）；无 Celery 安装时优雅降级同步；已装 celery 5.6.3 + redis 8.1.0，**eager 端到端验证通过**（判分→passed→10 分）
+  - ✅ **P3-5 视频生成完成**：`script_validator.py`（AST 校验：禁 import/call、必须 Scene 子类、长度上限）；`manim_engine.py`（Manim CLI 子进程渲染 + 超时 + 输出归档到 media/videos）；VideoAgent 重写（代码围栏正则提取、`generate_video_script` 对齐 README）；新增 `generate_video_script` 管理命令（生成→校验→可选渲染→存 Video 记录）。**真实渲染验证通过**（低质量 4.7s 产出 mp4）；6 个测试（渲染输出隔离到临时目录）
+  - ✅ **AI 跟踪与成本控制**：新增 `AIGenerationHistory` 模型 + 迁移（prompt/response/tokens/耗时/估算成本）；BaseAgent 与聊天服务全量记录；`AI_COST_LIMIT_DAILY` 每日限额真正生效（`daily_cost_exceeded` 拦截）；`AI_CACHE_ENABLED` 真正生效（相同 prompt+model 24h 内命中缓存）；5 个测试
+  - ✅ **单元格版本恢复**：`restore_cell_version` 端点（instructor 权限、恢复 cell_type+data、恢复前快照使恢复本身可撤销）+ 测试
+  - ✅ **命令补全**：`export_notebook`（json/md 导出）、`test_ai_agents`（连通性探测）、`batch_generate_content`（课程批量生成练习+考试草稿）
+  - ✅ **65 个测试全部通过**（pytest + manage.py test 双通道）
 - **2026-09-16**：P3 证书系统完成
   - ✅ **证书 PDF 生成**（P3-4）：新增 `apps/examination/certificates.py`（reportlab + 内置 STSong-Light CID 中文字体，无需外部字体文件）；`certificate_download` 视图惰性生成/复用证书 PDF（仅通过考试的提交可下载，未通过 403 提示页）；新增公开验证页 `certificate_verify`（验证码查询学员/考试/成绩/颁发时间）；结果页「下载证书」按钮接线 + 验证码展示；已安装 reportlab 5.0.1
   - ✅ **考试模块测试**：`apps/examination/tests.py` 从空壳变为 6 个真实测试（判断题 accessor 回归 + 证书下载/验证/失败拒绝/复用幂等），**全套 52 个测试 pytest 通过**

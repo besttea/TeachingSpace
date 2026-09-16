@@ -99,6 +99,32 @@ class CellOrderingTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_restore_cell_version(self):
+        """CellVersion snapshots can be restored (undo), and restore is undoable."""
+        from .models import CellVersion
+
+        cell = self.cells[0]
+        # snapshot the original state
+        original = CellVersion.objects.create(
+            cell=cell, snapshot={'cell_type': 'text', 'data': {'markdown': 'original'}, 'order': 0},
+            editor=self.instructor, change_description='v1')
+        # change the cell
+        cell.data = {'markdown': 'changed'}
+        cell.save()
+
+        self.client.force_login(self.instructor)
+        response = self.client.post(
+            reverse('learning:cell-restore-version', args=[cell.id, original.id]),
+            data=json.dumps({}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        cell.refresh_from_db()
+        self.assertEqual(cell.data['markdown'], 'original')
+        # the restore itself created a snapshot (undoable)
+        self.assertTrue(CellVersion.objects.filter(
+            cell=cell, change_description__startswith='Restore of version').exists())
+
 
 class SlugNavigationAndProgressTests(TestCase):
     """P2-5 slug collisions, P2-6 dead template refs, P2-7 completed_at."""
