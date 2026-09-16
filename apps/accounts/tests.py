@@ -58,3 +58,41 @@ class LoginOpenRedirectTests(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response['Location'], '/learning/courses/')
+
+
+class LoginRateLimitTests(TestCase):
+    """T4: brute-force protection — lock after LOGIN_MAX_ATTEMPTS failures."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='ratelimited', email='rl@example.com',
+            password='StrongPass123!')
+
+    def _post_login(self, password):
+        return self.client.post(reverse('accounts:login'),
+                                {'username': 'ratelimited', 'password': password})
+
+    def test_locked_after_repeated_failures(self):
+        from django.core.cache import cache
+        cache.clear()
+        for _ in range(5):
+            response = self._post_login('wrong-password')
+            self.assertEqual(response.status_code, 200)
+        # 6th attempt is blocked even with the CORRECT password
+        response = self._post_login('StrongPass123!')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '尝试次数过多')
+
+    def test_success_resets_counter(self):
+        from django.core.cache import cache
+        cache.clear()
+        for _ in range(4):
+            self._post_login('wrong-password')
+        # correct password succeeds and resets the failure window
+        response = self._post_login('StrongPass123!')
+        self.assertEqual(response.status_code, 302)
+        self.client.logout()
+        for _ in range(5):
+            response = self._post_login('wrong-password')
+        # still 4 more failures before lockout (counter was reset)
+        self.assertNotContains(response, '尝试次数过多')

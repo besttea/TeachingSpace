@@ -188,6 +188,7 @@ JUPYTER_KERNEL_BACKEND = config('JUPYTER_KERNEL_BACKEND', default='local')
 JUPYTER_KERNEL_IMAGE = config('JUPYTER_KERNEL_IMAGE', default='teaching-space-kernel')
 JUPYTER_KERNEL_IDLE_TIMEOUT = config('JUPYTER_KERNEL_IDLE_TIMEOUT', default=15 * 60, cast=int)
 JUPYTER_MAX_KERNELS = config('JUPYTER_MAX_KERNELS', default=20, cast=int)
+JUPYTER_MAX_KERNELS_PER_USER = config('JUPYTER_MAX_KERNELS_PER_USER', default=2, cast=int)
 JUPYTER_EXECUTE_TIMEOUT = config('JUPYTER_EXECUTE_TIMEOUT', default=15, cast=int)
 
 # Email Configuration

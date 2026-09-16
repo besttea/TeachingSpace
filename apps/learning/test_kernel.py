@@ -79,3 +79,24 @@ class JupyterKernelTests(SimpleTestCase):
         stream_text = ''.join(
             o['text'] for o in result['outputs'] if o['type'] == 'stream')
         self.assertIn('alive', stream_text)
+
+
+class KernelPerUserQuotaTests(SimpleTestCase):
+    """T3: one user cannot exceed the per-user kernel cap."""
+
+    @unittest.skipUnless(HAS_JUPYTER, 'jupyter_client/ipykernel not installed')
+    def test_per_user_cap_enforced(self):
+        uid = next(_id_counter)
+        manager.shutdown_all()
+        try:
+            with override_settings(JUPYTER_MAX_KERNELS_PER_USER=2):
+                manager.get_or_create(uid, uid)      # kernel 1 (lesson A)
+                manager.get_or_create(uid, uid + 1)  # kernel 2 (lesson B)
+                manager.get_or_create(uid, uid + 2)  # over cap → evicts oldest
+            own = [k for k in manager._sessions if k.startswith(f'{uid}:')]
+            self.assertLessEqual(len(own), 2)
+            # the requested session is still alive after eviction
+            session = manager.get_or_create(uid, uid + 2)
+            self.assertTrue(session.km.is_alive())
+        finally:
+            manager.shutdown_all()

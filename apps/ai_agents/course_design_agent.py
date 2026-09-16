@@ -77,7 +77,7 @@ class CourseDesignAgent(BaseAgent):
         {source_material}
         """
 
-        result = self.generate_json(prompt, system_prompt)
+        result = self.generate_json(prompt, system_prompt, role='planner')
         if isinstance(result, list):  # model dropped the {"chapters": ...} wrapper
             return {'chapters': result}
         return result
@@ -124,7 +124,7 @@ class CourseDesignAgent(BaseAgent):
         {source_material}
         """
 
-        result = self.generate_json(prompt, system_prompt)
+        result = self.generate_json(prompt, system_prompt, role='planner')
         if isinstance(result, list):  # model dropped the {"lessons": ...} wrapper
             return {'lessons': result}
         return result

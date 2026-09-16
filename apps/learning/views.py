@@ -284,7 +284,7 @@ def instructor_course_create(request):
                 return redirect('learning:instructor-course-manage', slug=course.slug)
 
             try:
-                from apps.ai_agents.course_design_agent import CourseDesignAgent
+                from apps.ai_agents.skills import CourseSkill
                 from apps.chat.notebook_tools import find_related_sections
 
                 chapter_count = int(request.POST.get('chapter_count', 3) or 3)
@@ -298,11 +298,14 @@ def instructor_course_create(request):
                             request, f'已在 ClassLib 中找到与《{title}》相关的教学素材，'
                                      f'大纲与内容将基于素材生成')
 
-                outline = CourseDesignAgent().design_course_outline(
+                # Harness CourseSkill: planner-role outline (content off — the
+                # instructor fills it per chapter on the course page)
+                outline = CourseSkill().run(
                     topic=title,
                     difficulty=difficulty,
                     chapter_count=chapter_count,
                     source_material=source_material,
+                    with_content=False,
                 )
 
                 created = 0

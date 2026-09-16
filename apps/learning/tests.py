@@ -331,10 +331,10 @@ class AICourseDesignFlowTests(TestCase):
         self.assertEqual(course.chapters.count(), 0)  # no outline generated
 
     @mock.patch('apps.ai_agents.ai_config.is_configured', return_value=True)
-    @mock.patch('apps.ai_agents.course_design_agent.CourseDesignAgent')
-    def test_ai_design_creates_outline(self, agent_cls, _configured):
-        agent = agent_cls.return_value
-        agent.design_course_outline.return_value = {
+    @mock.patch('apps.ai_agents.skills.CourseSkill')
+    def test_ai_design_creates_outline(self, skill_cls, _configured):
+        skill = skill_cls.return_value
+        skill.run.return_value = {
             'chapters': [
                 {'title': '第1章 入门', 'description': 'd1',
                  'lessons': [

@@ -83,7 +83,8 @@ Ground the lesson in this teaching material (cover its key points):
             structure = self.generate_json(
                 structure_prompt,
                 system_prompt='You are a Python curriculum designer. Return JSON only.',
-                max_tokens=800)
+                max_tokens=800,
+                role='planner')
             cells = structure.get('cells', []) if isinstance(structure, dict) else []
             if isinstance(structure, list):  # wrapper dropped
                 cells = structure

@@ -148,4 +148,4 @@ class ExaminationAgent(BaseAgent):
         }}
         """
         
-        return self.generate_json(prompt, system_prompt)
+        return self.generate_json(prompt, system_prompt, role='grader')

@@ -206,5 +206,6 @@
 
 > 格式：日期 ｜ 冲刺主题 ｜ 完成条目 ｜ 测试数
 
+- 2026-09-16 ｜ AI 落地深化 + P1 安全快赢 ｜ T4 登录限流（5 次/15 分钟锁定）、T3 内核每用户配额（默认 2）、T2 AI 审计 admin（只读）、T1 交卷 flush 防抖保存、T28 开发环境真实随机 SECRET_KEY；课程创建 AI 设计切到 CourseSkill（planner 角色）；Agent 角色标注（大纲/章节规划/结构请求→planner，作文评分→grader） ｜ 114
 - 2026-09-16 ｜ **AI 架构重写（DeepSeek Harness 模式）** ｜ 新增 HarnessCore（角色路由 planner/worker/grader + 回退链 + 兼容层 + 审计）、Skills 层（CourseSkill/ExerciseSkill/ExamSkill）、BaseAgent 薄适配、三个生成命令切到 Skills；真实落地验证（ExerciseSkill 一次通过 7/7 沙箱用例） ｜ 111
 - 2026-09-16 ｜ AI 修改能力（网页版） ｜ 习题详情「AI 修改」按钮（4.2）、考试管理页题目级 AI 修改（4.3）、`validate_exam` 命令（4.3）；抽公共模块 `apps/examination/question_ai.py` ｜ 107

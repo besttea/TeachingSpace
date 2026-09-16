@@ -150,6 +150,7 @@ class KernelSessionManager:
                 'pip install jupyter_client ipykernel')
 
         key = self._session_key(user_id, lesson_id)
+        max_per_user = int(getattr(settings, 'JUPYTER_MAX_KERNELS_PER_USER', 2))
         with self._lock:
             self._reap_locked(now=time.time())
             session = self._sessions.get(key)
@@ -159,6 +160,18 @@ class KernelSessionManager:
             if session is not None:
                 session.shutdown()
                 del self._sessions[key]
+
+            # Per-user quota: beyond the cap, reuse the user's oldest kernel
+            # instead of spawning another (prevents one user evicting others
+            # via the global LRU).
+            own = sorted(
+                (k for k in self._sessions if k.startswith(f'{user_id}:')),
+                key=lambda k: self._sessions[k].last_active)
+            while len(own) >= max_per_user:
+                victim_key = own.pop(0)
+                victim = self._sessions[victim_key]
+                victim.shutdown()
+                del self._sessions[victim_key]
 
             km = _kernel_manager()
             km.start_kernel()

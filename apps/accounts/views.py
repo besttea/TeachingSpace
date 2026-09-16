@@ -18,6 +18,32 @@ from apps.examination.models import StudentExam
 #: Max profile picture size (5 MB)
 MAX_PROFILE_PICTURE_SIZE = 5 * 1024 * 1024
 
+#: Login brute-force protection (per username+IP, cache-backed)
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_LOCKOUT_SECONDS = 15 * 60
+
+
+def _login_failure_key(request, username):
+    return f'login_fail:{request.META.get("REMOTE_ADDR", "unknown")}:{username}'
+
+
+def _login_limited(request, username):
+    from django.core.cache import cache
+    return (cache.get(_login_failure_key(request, username), 0)
+            >= LOGIN_MAX_ATTEMPTS)
+
+
+def _login_failure(request, username):
+    from django.core.cache import cache
+    key = _login_failure_key(request, username)
+    cache.add(key, 0, LOGIN_LOCKOUT_SECONDS)  # ensures the TTL window exists
+    cache.incr(key)
+
+
+def _login_success(request, username):
+    from django.core.cache import cache
+    cache.delete(_login_failure_key(request, username))
+
 
 def register_view(request):
     """User registration view (self-registration is student-only)"""
@@ -101,11 +127,19 @@ def login_view(request):
             messages.error(request, 'Both username and password are required.')
             return render(request, 'accounts/login.html')
 
+        # Brute-force protection: lock after repeated failures
+        if _login_limited(request, username):
+            messages.error(
+                request,
+                f'尝试次数过多，请 {LOGIN_LOCKOUT_SECONDS // 60} 分钟后再试。')
+            return render(request, 'accounts/login.html')
+
         # Authenticate user
         user = authenticate(request, username=username, password=password)
 
         if user is not None:
             login(request, user)
+            _login_success(request, username)
             messages.success(request, f'Welcome back, {user.username}!')
 
             # Redirect to next parameter (same-host / relative URLs only)
@@ -121,6 +155,7 @@ def login_view(request):
                 next_url = 'accounts:dashboard'
             return redirect(next_url)
         else:
+            _login_failure(request, username)
             messages.error(request, 'Invalid username or password.')
             return render(request, 'accounts/login.html')
 

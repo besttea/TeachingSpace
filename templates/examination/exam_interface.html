@@ -236,6 +236,7 @@
             timeRemaining: initialTimeRemaining,
             isSubmitting: false,
             saveTimers: {},
+            pendingSaves: {},
 
             get timerClass() {
                 if (this.timeRemaining <= 60) {
@@ -325,14 +326,19 @@
             },
 
             debouncedSave(questionId, type, value) {
+                // Track the pending payload so submit can flush it
+                this.pendingSaves[questionId] = { type: type, value: value };
+
                 // Clear existing timer
                 if (this.saveTimers[questionId]) {
                     clearTimeout(this.saveTimers[questionId]);
                 }
 
                 // Set new timer to save after 2 seconds of no typing
-                this.saveTimers[questionId] = setTimeout(() => {
-                    this.saveAnswer(questionId, type, value);
+                this.saveTimers[questionId] = setTimeout(async () => {
+                    await this.saveAnswer(questionId, type, value);
+                    delete this.pendingSaves[questionId];
+                    delete this.saveTimers[questionId];
                 }, 2000);
             },
 
@@ -344,6 +350,21 @@
                 }
 
                 this.isSubmitting = true;
+
+                // Flush pending debounced saves FIRST — otherwise the last
+                // ~2 seconds of typing would never reach the server.
+                try {
+                    for (const questionId of Object.keys(this.saveTimers)) {
+                        clearTimeout(this.saveTimers[questionId]);
+                        delete this.saveTimers[questionId];
+                    }
+                    for (const [questionId, pending] of Object.entries(this.pendingSaves)) {
+                        await this.saveAnswer(questionId, pending.type, pending.value);
+                        delete this.pendingSaves[questionId];
+                    }
+                } catch (flushError) {
+                    console.warn('Save flush failed, submitting anyway:', flushError);
+                }
 
                 try {
                     const response = await fetch('/examination/api/submit/', {
