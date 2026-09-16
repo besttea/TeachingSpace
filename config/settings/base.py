@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "apps.examination",
     "apps.chat",
     "apps.ai_agents",
+    "apps.video_generator",
 ]
 
 MIDDLEWARE = [

@@ -7,6 +7,9 @@ Usage:
         --difficulty intermediate [--render] [--quality medium] [--lesson 12]
 """
 
+import os
+
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.ai_agents.video_agent import VideoAgent
@@ -66,15 +69,25 @@ class Command(BaseCommand):
         )
 
         if options['render']:
-            from apps.video_generator.manim_engine import render_script
+            from apps.video_generator.tasks import render_video_task
             self.stdout.write('Rendering with Manim (this can take minutes)...')
-            result = render_script(
-                script, quality=options['quality'],
+            result = render_video_task(
+                script, scene_name=None,
+                quality=options['quality'],
                 timeout=int(options['duration']) * 10 + 120)
             if result['success']:
                 video_record.video_file.name = result['video_path']
                 video_record.generation_status = 'completed'
                 video_record.save()
+                # T21: first-frame thumbnail
+                from apps.video_generator.tasks import generate_thumbnail
+                thumb_name = f'video_thumbnails/video_{video_record.id}.jpg'
+                thumb_path = os.path.join(settings.MEDIA_ROOT, thumb_name)
+                os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
+                if generate_thumbnail(result['video_path'], thumb_path):
+                    video_record.thumbnail.name = thumb_name
+                    video_record.save()
+                    self.stdout.write(self.style.SUCCESS('Thumbnail generated.'))
                 self.stdout.write(self.style.SUCCESS(
                     f'Rendered: {result["video_path"]} ({result["duration_ms"]} ms)'))
             else:
