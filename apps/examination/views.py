@@ -2,12 +2,13 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView, DetailView, TemplateView
-from django.http import JsonResponse, Http404
+from django.http import JsonResponse, Http404, FileResponse
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
 from django.db import transaction
 from django.db.models import Q, Count
 from django.conf import settings
+from django.core.files.base import ContentFile
 import json
 import logging
 import random
@@ -15,7 +16,7 @@ import random
 logger = logging.getLogger(__name__)
 
 from .models import (
-    Exam, Question, StudentExam, ExamAnswer,
+    Exam, Question, StudentExam, ExamAnswer, Certificate,
     MultipleChoiceQuestion, CodeQuestion, EssayQuestion, TrueFalseQuestion
 )
 from apps.code_runner.executor import CodeExecutor
@@ -442,4 +443,59 @@ class ExamResultsView(LoginRequiredMixin, DetailView):
         )
         context['is_passing'] = student_exam.is_passing()
 
+        # Certificate (if one was generated before)
+        try:
+            context['certificate'] = student_exam.certificate
+        except Certificate.DoesNotExist:
+            context['certificate'] = None
+
         return context
+
+
+@login_required
+def certificate_download(request, attempt_id):
+    """Download (or lazily generate) the certificate PDF for a passed attempt."""
+    student_exam = get_object_or_404(
+        StudentExam,
+        id=attempt_id,
+        student=request.user,
+        is_submitted=True
+    )
+
+    if not student_exam.is_passing():
+        return render(request, 'examination/certificate_unavailable.html', {
+            'student_exam': student_exam,
+        }, status=403)
+
+    certificate = Certificate.objects.filter(student_exam=student_exam).first()
+    if certificate is None:
+        from .certificates import generate_certificate_pdf
+
+        certificate = Certificate(student_exam=student_exam)
+        certificate.save()  # assigns verification_code first (PDF embeds it)
+        pdf_bytes = generate_certificate_pdf(
+            student_exam, verification_code=certificate.verification_code)
+        certificate.certificate_pdf.save(
+            f'certificate_{student_exam.id}.pdf',
+            ContentFile(pdf_bytes),
+        )
+        certificate.save()
+
+    response = FileResponse(certificate.certificate_pdf.open('rb'),
+                            content_type='application/pdf')
+    response['Content-Disposition'] = (
+        f'attachment; filename="certificate-{certificate.verification_code[:8]}.pdf"'
+    )
+    return response
+
+
+def certificate_verify(request, code):
+    """Public certificate verification page (code lookup)."""
+    certificate = Certificate.objects.filter(
+        verification_code=code
+    ).select_related('student_exam__student', 'student_exam__exam').first()
+
+    return render(request, 'examination/certificate_verify.html', {
+        'certificate': certificate,
+        'valid': certificate is not None,
+    })

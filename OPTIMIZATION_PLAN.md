@@ -328,6 +328,9 @@ Celery（无 celery.py 应用、无 tasks.py、无 `.delay()`）、DRF（零 ser
 
 ## 进度记录
 
+- **2026-09-16**：P3 证书系统完成
+  - ✅ **证书 PDF 生成**（P3-4）：新增 `apps/examination/certificates.py`（reportlab + 内置 STSong-Light CID 中文字体，无需外部字体文件）；`certificate_download` 视图惰性生成/复用证书 PDF（仅通过考试的提交可下载，未通过 403 提示页）；新增公开验证页 `certificate_verify`（验证码查询学员/考试/成绩/颁发时间）；结果页「下载证书」按钮接线 + 验证码展示；已安装 reportlab 5.0.1
+  - ✅ **考试模块测试**：`apps/examination/tests.py` 从空壳变为 6 个真实测试（判断题 accessor 回归 + 证书下载/验证/失败拒绝/复用幂等），**全套 52 个测试 pytest 通过**
 - **2026-09-16**：P2 收尾 + P3 AI Agent 接线
   - ✅ **P2-1 完成**：新增 `pytest.ini` + 根目录 `conftest.py`（`django.setup()`），`pytest` 命令真实可用（CLAUDE.md 承诺的工作流恢复），**46 个测试 pytest 全通过**；`manage.py test` 同样可用
   - ✅ **P2-2 完成**：base.html 移除从未使用的 HTMX 与 CodeMirror CDN 引入（v5 风格脚本对 v6 无效）；requirements.txt 清理未用依赖（allauth/markdownx/jupyterlab/locust/docker SDK）并对齐实际环境版本（Django 5.2.8 / anthropic 0.75.0，未实现部分加注释标注）；删除孤立的 MARKDOWNX 配置

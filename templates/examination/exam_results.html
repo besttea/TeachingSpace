@@ -48,9 +48,15 @@
 
                     <div class="mt-4">
                         {% if is_passing %}
-                        <a href="#" class="btn btn-success me-2" disabled>
-                            <i class="bi bi-award"></i> 下载证书 (开发中)
+                        <a href="{% url 'examination:exam-certificate' student_exam.id %}" class="btn btn-success me-2">
+                            <i class="bi bi-award"></i> 下载证书
                         </a>
+                        {% if certificate %}
+                        <div class="mt-2 small text-muted">
+                            验证码：<code>{{ certificate.verification_code }}</code>
+                            （<a href="{% url 'examination:certificate-verify' certificate.verification_code %}">在线验证</a>）
+                        </div>
+                        {% endif %}
                         {% endif %}
                         <a href="{% url 'examination:exam-detail' student_exam.exam.id %}" class="btn btn-primary">
                             <i class="bi bi-arrow-left"></i> 返回考试详情

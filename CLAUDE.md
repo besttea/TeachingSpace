@@ -516,6 +516,7 @@ Create a `.env` file based on `.env.example`:
 - ✅ Learning app models and views
 - ✅ Training app models and views
 - ✅ Examination app models and views
+- ✅ Certificate PDF generation (reportlab + STSong-Light CJK font, lazy on-demand download, public verification-code page, 403 for non-passing attempts)
 - ✅ Code execution engine (RestrictedPython with dual-mode testing)
 - ✅ **AI Chat Assistant**:
   - ✅ Chat interface with conversation history

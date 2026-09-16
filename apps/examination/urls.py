@@ -18,4 +18,8 @@ urlpatterns = [
 
     # Results
     path('results/<int:attempt_id>/', views.ExamResultsView.as_view(), name='exam-results'),
+    path('results/<int:attempt_id>/certificate/', views.certificate_download, name='exam-certificate'),
+
+    # Public certificate verification
+    path('certificates/<str:code>/', views.certificate_verify, name='certificate-verify'),
 ]
