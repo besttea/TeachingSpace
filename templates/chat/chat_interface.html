@@ -440,7 +440,7 @@
                     currentConversationId = data.conversation_id;
                 }
                 // Add assistant response to UI
-                addMessageToUI('assistant', data.assistant_message.content, data.assistant_message.suggested_resources);
+                addMessageToUIProgressive('assistant', data.assistant_message.content, data.assistant_message.suggested_resources);
 
                 // Refresh conversation list to update timestamps
                 await refreshConversationList();
@@ -466,6 +466,25 @@
         return String(text ?? '')
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // 渐进式渲染（T17 流式体验）：收到完整回复后按打字机方式逐段显示。
+    // 相比真实 SSE，此方案保留工具调用（素材查询）能力——流式与工具不可兼得
+    // 时的取舍已记录在优化方案 T17。
+    function addMessageToUIProgressive(role, content, suggestedResources = []) {
+        addMessageToUI(role, '', suggestedResources);
+        const container = document.getElementById('chatMessages');
+        const bubble = container.querySelector('.message:last-child .message-bubble');
+        if (!bubble) return;
+        const chunks = (content || '').split(/(?<=[\n。！？])/);
+        let index = 0;
+        (function nextChunk() {
+            if (index >= chunks.length) return;
+            bubble.innerHTML = escapeHtml(content.slice(0,
+                chunks.slice(0, ++index).join('').length)).replace(/\n/g, '<br>');
+            container.scrollTop = container.scrollHeight;
+            setTimeout(nextChunk, 30);
+        })();
     }
 
     function addMessageToUI(role, content, suggestedResources = []) {

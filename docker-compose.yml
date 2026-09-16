@@ -1,0 +1,93 @@
+# Full-stack orchestration: web + celery + redis + postgres.
+# Usage:  docker compose -f docker-compose.yml up -d
+# First run: docker compose exec web python manage.py migrate
+#            docker compose exec web python manage.py createsuperuser
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: teaching_space
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change-me}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    environment:
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: "False"
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost}
+      DB_ENGINE: django.db.backends.postgresql
+      DB_NAME: teaching_space
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-change-me}
+      DB_HOST: db
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_ALWAYS_EAGER: "False"
+      AI_PROVIDER: ${AI_PROVIDER:-deepseek}
+      AI_ACTIVE_MODEL: ${AI_ACTIVE_MODEL:-deepseek-flash}
+      deepseek_Api: ${deepseek_Api:-}
+      CODE_EXECUTION_BACKEND: ${CODE_EXECUTION_BACKEND:-docker}
+      SANDBOX_DOCKER_IMAGE: teaching-space-sandbox
+      JUPYTER_KERNEL_BACKEND: ${JUPYTER_KERNEL_BACKEND:-docker}
+    volumes:
+      - media:/app/media
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    command: celery -A config worker -l info
+    environment:
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: "False"
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost}
+      DB_ENGINE: django.db.backends.postgresql
+      DB_NAME: teaching_space
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-change-me}
+      DB_HOST: db
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_ALWAYS_EAGER: "False"
+      AI_PROVIDER: ${AI_PROVIDER:-deepseek}
+      AI_ACTIVE_MODEL: ${AI_ACTIVE_MODEL:-deepseek-flash}
+      deepseek_Api: ${deepseek_Api:-}
+      CODE_EXECUTION_BACKEND: ${CODE_EXECUTION_BACKEND:-docker}
+      SANDBOX_DOCKER_IMAGE: teaching-space-sandbox
+    volumes:
+      - media:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  media:

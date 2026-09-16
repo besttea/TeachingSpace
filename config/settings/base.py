@@ -56,6 +56,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "apps.core.middleware.RequestLatencyMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -171,6 +172,11 @@ CELERY_TIMEZONE = TIME_ZONE
 # CELERY_ALWAYS_EAGER=False once a broker is running.
 CELERY_TASK_ALWAYS_EAGER = config('CELERY_ALWAYS_EAGER', default=DEBUG, cast=bool)
 CELERY_TASK_EAGER_PROPAGATES = True
+# T5/4.5: generation/render concurrency gates — expensive tasks are rate-limited
+CELERY_ANNOTATIONS = {
+    'apps.training.tasks.grade_submission_task': {'rate_limit': '120/m'},
+    'apps.video_generator.tasks.render_video_task': {'rate_limit': '5/m'},
+}
 
 # Code Execution Settings
 CODE_EXECUTION_TIMEOUT = 10  # seconds

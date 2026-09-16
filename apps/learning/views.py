@@ -242,6 +242,26 @@ class InstructorDashboardView(LoginRequiredMixin, UserPassesTestMixin, ListView)
         qs = Course.objects.filter(instructor=self.request.user)
         return qs.prefetch_related('chapters__lessons').order_by('-created_at')
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+
+        # 4.7: instructor stats cards (single grouped queries each)
+        from apps.training.models import Exercise
+        from apps.examination.models import StudentExam
+
+        courses = context['object_list']
+        context['stats'] = {
+            'total_courses': courses.count(),
+            'total_students': Enrollment.objects.filter(
+                course__instructor=user, is_active=True
+            ).values('student').distinct().count(),
+            'total_exercises': Exercise.objects.filter(created_by=user).count(),
+            'total_exam_attempts': StudentExam.objects.filter(
+                exam__created_by=user, is_submitted=True).count(),
+        }
+        return context
+
 
 @login_required
 @require_http_methods(["POST"])

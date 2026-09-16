@@ -20,6 +20,42 @@
         {% endfor %}
     {% endif %}
 
+    <!-- 统计卡片 -->
+    <div class="row mb-4 g-3">
+        <div class="col-6 col-lg-3">
+            <div class="card text-center border-primary-subtle">
+                <div class="card-body py-3">
+                    <h3 class="mb-0">{{ stats.total_courses }}</h3>
+                    <small class="text-muted">我的课程</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="card text-center border-success-subtle">
+                <div class="card-body py-3">
+                    <h3 class="mb-0">{{ stats.total_students }}</h3>
+                    <small class="text-muted">选课学员</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="card text-center border-warning-subtle">
+                <div class="card-body py-3">
+                    <h3 class="mb-0">{{ stats.total_exercises }}</h3>
+                    <small class="text-muted">我的练习</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="card text-center border-info-subtle">
+                <div class="card-body py-3">
+                    <h3 class="mb-0">{{ stats.total_exam_attempts }}</h3>
+                    <small class="text-muted">考试人次</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="row">
         <!-- 我的课程 -->
         <div class="col-lg-8">

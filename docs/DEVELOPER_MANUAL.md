@@ -357,6 +357,28 @@ python manage.py test apps.chat --settings=config.settings.development  # 备选
    - [ ] `manage.py check --deploy` 无高危项；Sentry DSN（可选）
    - [ ] 备份：SQLite 文件或 PostgreSQL 定期备份 + `media/`（证书与视频）
 
+### 9.1 Docker Compose 全栈（T30）
+
+`docker-compose.yml` 提供 web + celery + redis + postgres 四服务编排（应用镜像 `docker/app/Dockerfile`，gunicorn 3 workers、非 root）。首次部署：
+
+```bash
+docker compose up -d
+docker compose exec web python manage.py migrate
+docker compose exec web python manage.py createsuperuser
+```
+
+注意：执行类后端（沙箱/内核镜像）仍按第 6.1/6.7 节单独构建；`media/` 与 `pgdata` 为持久卷。
+
+### 9.2 备份与恢复（T29）
+
+- **数据库**：PostgreSQL 每日 `pg_dump`（cron 示例）：
+  ```bash
+  docker compose exec db pg_dump -U postgres teaching_space | gzip > backup_$(date +%F).sql.gz
+  ```
+  恢复：`gunzip -c backup_YYYY-MM-DD.sql.gz | docker compose exec -T db psql -U postgres teaching_space`
+- **文件**：`media/` 卷（证书、视频、头像）随 pg_dump 同日归档（tar 或对象存储）；
+- **演练**：每季度在测试环境执行一次恢复演练，验证备份可用。
+
 ## 10. 开发规范
 
 1. **权限**：学习课堂的教师权限用 `_can_edit_lesson()`（课程 instructor 或 staff）；所有单元格写接口必须校验；学生可见内容一律过滤 `is_published`。
