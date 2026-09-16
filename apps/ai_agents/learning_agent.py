@@ -1,6 +1,10 @@
+import logging
+
 from .base_agent import BaseAgent
 
 import re
+
+logger = logging.getLogger(__name__)
 
 
 def _markdown_to_cells(text):

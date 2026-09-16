@@ -75,7 +75,9 @@ def daily_cost_exceeded() -> bool:
     if limit <= 0:
         return False
     from django.utils import timezone
+    # localdate() (NOT now().date()): the __date lookup interprets the value
+    # in the current timezone, so a UTC date would miss rows near midnight.
     spent = AIGenerationHistory.objects.filter(
-        created_at__date=timezone.now().date()
+        created_at__date=timezone.localdate()
     ).aggregate(total=models.Sum('estimated_cost_usd'))['total'] or 0
     return float(spent) >= limit
