@@ -328,6 +328,12 @@ Celery（无 celery.py 应用、无 tasks.py、无 `.delay()`）、DRF（零 ser
 
 ## 进度记录
 
+- **2026-09-16（深夜批）**：AI 生成稳定性与教师工作台
+  - ✅ **推理模型兼容层**（DeepSeek reasoner/flash 实测驱动）：temperature 拒绝自动重试、ThinkingBlock 跳过、思考耗尽预算自动去 temperature 重试、空文本明确报错、`_extract_json` 容错链（围栏/裸对象序列/丢外层包装）、`generate_json` 支持按阶段 `max_tokens`
+  - ✅ **两阶段内容生成**：结构请求（小响应）→ 逐格短请求（每格 ≤1200 token）→ Markdown 切分降级——推理模型长提示下思考循环问题解决，8 格课程单元实测成功
+  - ✅ **课程详情页章节级 AI 填充**：每章「AI 生成本章」（无单元先规划再填充、有单元顺序生成带进度）、每单元「AI 生成/重新生成」+ 单元格徽标；`_error_response` 自递归 bug（500 HTML 掩盖真实错误）修复 + 回归测试
+  - ✅ **教师工作台补全**：`create_instructor` 命令、课程/章节/单元创建界面、发布/下线切换、学员进度名单、练习创建表单、考试审核发布
+  - ✅ **94 个测试全部通过**
 - **2026-09-16**：P3 全部完成（Docker 隔离 / Celery / 视频管线 / 跟踪与成本控制 / 版本恢复 / 导出）
   - ✅ **P3-1 Docker 隔离完成**：执行器重构——runner 抽为独立文件 `apps/code_runner/sandbox_runner.py`（subprocess 与 Docker 共用单一来源）；`docker/sandbox/Dockerfile`（python:3.13-slim、非 root、ENTRYPOINT runner）；`_execute_docker` 实现（`--network none`、128m 内存、0.5 CPU、pids-limit、read-only rootfs、cap-drop ALL）；`CODE_EXECUTION_BACKEND` 设置切换。**已构建镜像并真机验证 8 项**（正常执行/白名单导入/os 拦截/gadget 链拦截/open 拦截/socket 拦截/超时 kill/双测试模式）——因 Docker Hub 直连受限使用了 DaoCloud 镜像源拉取基础镜像
   - ✅ **P3-2 Celery 完成**：`config/celery.py` + `config/__init__.py` 经典接线（懒配置 + worker 信号里 django.setup + autodiscover，避免设置加载期的模型导入循环）；训练判分走 `grade_submission_task`（无 broker 时 eager 内联 = 零行为变化；有 broker 时后台判分）；无 Celery 安装时优雅降级同步；已装 celery 5.6.3 + redis 8.1.0，**eager 端到端验证通过**（判分→passed→10 分）

@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Points system**: first-pass-only awarding (no farming), hint penalties consistent with actual hint values, atomic counter updates
 - Chat history uses the most recent 20 messages; `course_detail` N+1 eliminated; slug collisions for Chinese titles; `video_cell` accepts `manim_generated`; `Enrollment.completed_at` set at 100%; prev/next lesson navigation and progress bar restored
 - Production config: wsgi/asgi point to production settings, SECRET_KEY enforced, logs dir auto-created, LOGIN_REDIRECT_URL corrected
+- **Reasoning-model compatibility** (DeepSeek reasoner/flash): automatic retry without `temperature` when rejected, ThinkingBlock skipping, retry-without-temperature on thinking-only responses, empty-text clear errors, robust JSON extraction (fences / bare object sequences / missing wrappers), and a two-phase content generation mode (structure request → per-cell short requests) with a markdown-splitting fallback
+- `_error_response` self-recursion (any learning API error became a 500 HTML page — e.g. "Unexpected token '<'" seen by browsers) fixed with a regression test
 
 ### Added
 - **AI multi-provider support**: switch between Anthropic / DeepSeek / custom proxies via `AI_PROVIDER` (`deepseek_Api` env var for DeepSeek keys); agents, chat, and essay grading follow automatically

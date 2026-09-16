@@ -221,6 +221,19 @@ ai_config.py（provider 路由）
 - AI 生成的**考题必须草稿发布**（`generate_exam` 默认 `is_published=False`）。
 - 工具结果内容是不可信数据——只做截断回传，绝不执行。
 
+**推理模型兼容层**（`BaseAgent.generate` 内置，全部自动生效）：
+
+| 故障 | 自动处理 |
+|------|---------|
+| 模型拒绝 `temperature` 参数（如 deepseek-reasoner 400） | 去掉 temperature 重试一次 |
+| 响应含 ThinkingBlock（推理模型思考块，无 `.text`） | 提取文本时跳过思考块 |
+| 有 temperature 时思考耗尽全部输出预算、无文本 | 去掉 temperature 重试一次；仍无文本则抛明确错误（提示换非推理模型） |
+| JSON 响应带 ```json 围栏 / 前言 / 尾随说明（贪婪正则会解析坏） | `_extract_json`：围栏剥离 → 整体 raw_decode → 裸对象序列自动包成数组 → 逐 `{`/`[` 扫描首个完整值 |
+| 模型丢掉外层包装（输出 `{...},{...}` 而非 `{"cells": [...]}`） | 提取为列表后由各 Agent 归一化（`isinstance(result, list)` → 包回对应键） |
+| 内容生成失败但有可用文本 | `_markdown_to_cells`：按 ``` 围栏把 Markdown 切分为单元格降级 |
+
+**长内容生成的推荐模式**：推理模型（deepseek-flash/reasoner）在长提示下易进入思考循环——用**两阶段**（结构请求 → 逐格短请求），见 6.8。`generate_json(..., max_tokens=N)` 支持按阶段控制输出预算。
+
 ### 6.3 Notebook 素材解析
 
 `apps/core/notebook_parser.py`（纯标准库，无 Django 依赖）是 ClassLib `*.ipynb` 解析的唯一实现：
@@ -272,20 +285,30 @@ VideoAgent.generate_video_script()  # AI 生成脚本（围栏正则提取,不�
 ### 6.8 AI 辅助课程设计（教师工作台流程）
 
 ```
-教师创建课程（勾选 AI 辅助）
+【创建时】教师创建课程（勾选 AI 辅助）
   → CourseDesignAgent.design_course_outline()    # 章节+单元大纲（JSON）
       ↑ 可选接地：notebook_tools.find_related_sections(主题)
         —— 扫描 ClassLib 全部 notebook，按标题/关键词匹配相关小节，注入提示词
   → 创建 Course + Chapters + Lessons（全部草稿、无单元格）
   → 大纲确认页（instructor/outline.html）
-  → 逐单元 instructor_lesson_generate：
-      LearningAgent.generate_lesson_content(..., source_material=匹配素材)
-      → 重建该单元 Cells（先清后建，重复生成幂等）
-  → 教师编辑器微调 → 发布
+
+【日常使用】课程详情页（教师工作区）每个章节都有「AI 生成本章」：
+  ├─ 本章无课程单元 → CourseDesignAgent.design_chapter_lessons()
+  │                    AI 先规划单元列表（编号继承章节，素材自动接地）
+  └─ 本章有课程单元 → 逐单元调用 instructor_lesson_generate：
+       LearningAgent.generate_lesson_content()   # 两阶段生成（见下）
+       → 重建该单元 Cells（先清后建，重复生成幂等）
+  单元级另有「AI 生成/重新生成」按钮 + 单元格数徽标
 ```
 
+**两阶段内容生成**（`LearningAgent.generate_lesson_content`，针对推理模型设计）：
+
+1. **结构请求**（小响应、低思考预算）：返回 `{"cells": [{"type", "title"}]}`（6-10 格，max_tokens=800）；
+2. **逐格内容请求**：每个单元格一次短请求（max_tokens=1200，代码格自动剥离围栏）——短提示下推理模型（deepseek-flash 等）输出稳定；
+3. **降级链**：结构请求失败但有文本 → 按 ``` 围栏把 Markdown 切分为单元格；完全无文本 → 再发一次纯 Markdown 请求（`_generate_plain_lesson`）；单个单元格失败不影响其余格。
+
 - 无 AI 密钥时自动回退手动流程（创建空课程 + 提示）；
-- 生成调用经过 `BaseAgent` 统一管道（成本记录/日限额/缓存），无额外开销；
+- 生成调用经过 `BaseAgent` 统一管道（成本记录/日限额/缓存）；
 - 新增 AI 能力遵循同样模式：Agent 类 + 视图内懒导入 + 无密钥降级 + mock 测试（参见 `apps/learning/tests.py::AICourseDesignFlowTests`）。
 
 ## 7. 管理命令参考

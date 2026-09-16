@@ -294,6 +294,9 @@ python manage.py optimize_cell_images --settings=config.settings.development
 - **Security measures**: Network disabled, memory limits, CPU quotas, timeout enforcement (planned for Docker mode)
 
 ### AI Agent Architecture
+- **Reasoning-model compatibility** (built into `BaseAgent.generate`): auto-retry without `temperature` when rejected; ThinkingBlocks skipped when extracting text; retry-without-temperature when a reasoning model burns the whole budget on thinking; clear error when no text at all. `generate_json` uses a robust `_extract_json` (fences / bare object sequences / missing wrappers) and accepts per-call `max_tokens`.
+- **Two-phase content generation** (`LearningAgent.generate_lesson_content`): tiny structure request (cell types+titles) → one short request per cell → markdown-splitting fallback. Use this pattern for long content with reasoning models (deepseek-flash/reasoner); short prompts keep them stable.
+- **Instructor AI flow**: course detail page (教师工作区) has per-chapter 「AI 生成本章」 (plans lessons when empty via `CourseDesignAgent.design_chapter_lessons`, then fills content per lesson) and per-lesson 「AI 生成/重新生成」 buttons; creation form has AI-assisted outline design; all generation auto-grounds in ClassLib material via `find_related_sections`.
 - **Base Agent Class**: `apps/ai_agents/base_agent.py` - Common functionality for all AI agents
   - API client management (Anthropic Claude)
   - Error handling and retry logic
