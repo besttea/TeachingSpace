@@ -6,6 +6,7 @@ app_name = 'training'
 urlpatterns = [
     # Exercise browsing
     path('exercises/', views.ExerciseListView.as_view(), name='exercise-list'),
+    path('exercises/create/', views.exercise_create, name='exercise-create'),
     path('exercises/<slug:slug>/', views.ExerciseDetailView.as_view(), name='exercise-detail'),
 
     # Submission

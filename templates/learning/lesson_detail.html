@@ -219,6 +219,13 @@
 
     <!-- Cells -->
     <div x-data="notebookViewer()" x-init="init()">
+        {% if enrollment %}
+        <div class="text-end mb-3">
+            <button class="btn btn-sm btn-outline-secondary" @click="restartKernel()">
+                <i class="bi bi-arrow-counterclockwise"></i> 重启内核（清空变量）
+            </button>
+        </div>
+        {% endif %}
         {% for cell in cells %}
         <div class="cell" data-cell-id="{{ cell.id }}" data-cell-type="{{ cell.cell_type }}">
 
@@ -393,47 +400,122 @@ function notebookViewer() {
         async executeCell(cellId) {
             this.executing = cellId;
 
+            const cellElement = document.querySelector(`[data-cell-id="${cellId}"]`);
+            const sourceElement = cellElement ? cellElement.querySelector('.code-source code') : null;
+            const source = sourceElement ? sourceElement.textContent : '';
+            if (!source.trim()) {
+                return;
+            }
+
             try {
-                const response = await fetch(`/learning/api/cells/${cellId}/execute/`, {
+                const response = await fetch(`/learning/api/lessons/{{ lesson.id }}/kernel/execute/`, {
                     method: 'POST',
                     headers: {
                         'X-CSRFToken': csrftoken,
                         'Content-Type': 'application/json'
-                    }
+                    },
+                    body: JSON.stringify({code: source})
                 });
 
                 const data = await response.json();
 
                 if (data.success) {
-                    // Update cell output in the DOM
-                    const cellElement = document.querySelector(`[data-cell-id="${cellId}"]`);
-                    const outputElement = cellElement.querySelector('.code-output');
-                    const headerElement = cellElement.querySelector('.execution-count');
-
-                    if (outputElement) {
-                        outputElement.textContent = data.output;
-                        outputElement.className = 'code-output ' + data.status;
-                    } else {
-                        // Create output element if it doesn't exist
-                        const codeCell = cellElement.querySelector('.code-cell');
-                        const newOutput = document.createElement('div');
-                        newOutput.className = 'code-output ' + data.status;
-                        newOutput.textContent = data.output;
-                        codeCell.appendChild(newOutput);
-                    }
-
-                    // Update execution count
-                    if (headerElement && data.execution_count) {
-                        headerElement.textContent = `In [${data.execution_count}]:`;
-                    }
+                    this.renderOutput(cellId, data);
                 } else {
-                    alert('Error executing cell: ' + data.error);
+                    alert('Error executing cell: ' + (data.error || 'unknown error'));
                 }
             } catch (error) {
                 console.error('Error:', error);
                 alert('Failed to execute cell. Please try again.');
             } finally {
                 this.executing = null;
+            }
+        },
+
+        // Render rich Jupyter outputs (stream / result / image / error) into
+        // the cell. All kernel text is inserted via textContent (no XSS);
+        // text/html payloads go through DOMPurify before innerHTML.
+        renderOutput(cellId, data) {
+            const cellElement = document.querySelector(`[data-cell-id="${cellId}"]`);
+            if (!cellElement) return;
+
+            const codeCell = cellElement.querySelector('.code-cell');
+            let outputElement = cellElement.querySelector('.code-output');
+            if (!outputElement) {
+                outputElement = document.createElement('div');
+                outputElement.className = 'code-output success';
+                codeCell.appendChild(outputElement);
+            }
+            outputElement.innerHTML = '';
+
+            const stripAnsi = (s) => (s || '').replace(/\[[0-9;]*m/g, '');
+
+            for (const output of (data.outputs || [])) {
+                if (output.type === 'stream') {
+                    const pre = document.createElement('pre');
+                    pre.textContent = output.text;
+                    outputElement.appendChild(pre);
+                } else if (output.type === 'execute_result' || output.type === 'display_data') {
+                    const d = output.data || {};
+                    if (d['image/png']) {
+                        const img = document.createElement('img');
+                        img.src = 'data:image/png;base64,' + d['image/png'];
+                        img.style.maxWidth = '100%';
+                        outputElement.appendChild(img);
+                    }
+                    if (d['image/jpeg']) {
+                        const img = document.createElement('img');
+                        img.src = 'data:image/jpeg;base64,' + d['image/jpeg'];
+                        img.style.maxWidth = '100%';
+                        outputElement.appendChild(img);
+                    }
+                    if (d['text/html']) {
+                        const div = document.createElement('div');
+                        div.innerHTML = typeof DOMPurify !== 'undefined'
+                            ? DOMPurify.sanitize(d['text/html'])
+                            : stripAnsi(d['text/html']).replace(/</g, '&lt;');
+                        outputElement.appendChild(div);
+                    } else if (d['text/plain']) {
+                        const pre = document.createElement('pre');
+                        pre.textContent = stripAnsi(d['text/plain']);
+                        outputElement.appendChild(pre);
+                    }
+                } else if (output.type === 'error') {
+                    const pre = document.createElement('pre');
+                    pre.className = 'error-output';
+                    pre.textContent = stripAnsi(
+                        (output.traceback || []).join('\n') ||
+                        `${output.ename}: ${output.evalue}`);
+                    outputElement.appendChild(pre);
+                }
+            }
+
+            // Execution count header
+            const headerElement = cellElement.querySelector('.execution-count');
+            if (headerElement) {
+                headerElement.textContent = data.execution_count != null
+                    ? `In [${data.execution_count}]:` : 'In [ ]:';
+            }
+        },
+
+        async restartKernel() {
+            if (!confirm('重启内核将清空所有变量，确定继续？')) {
+                return;
+            }
+            try {
+                const response = await fetch(`/learning/api/lessons/{{ lesson.id }}/kernel/restart/`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrftoken,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({})
+                });
+                const data = await response.json();
+                alert(data.success ? '内核已重启' : '重启失败: ' + (data.error || ''));
+            } catch (error) {
+                console.error('Error:', error);
+                alert('内核重启失败，请稍后再试。');
             }
         },
 

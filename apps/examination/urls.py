@@ -6,6 +6,8 @@ app_name = 'examination'
 urlpatterns = [
     # Exam list and detail
     path('', views.ExamListView.as_view(), name='exam-list'),
+    path('manage/', views.InstructorExamListView.as_view(), name='exam-manage'),
+    path('api/<int:pk>/publish/', views.exam_publish, name='exam-publish'),
     path('<int:pk>/', views.ExamDetailView.as_view(), name='exam-detail'),
 
     # Exam taking flow

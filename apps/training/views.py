@@ -10,6 +10,7 @@ import json
 
 from .models import Exercise, Hint, Submission, HintUsage
 from apps.accounts.models import StudentProfile
+from apps.learning.models import Course
 
 
 class ExerciseListView(LoginRequiredMixin, ListView):
@@ -52,6 +53,9 @@ class ExerciseListView(LoginRequiredMixin, ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context['can_create'] = (
+            self.request.user.is_staff or self.request.user.user_type == 'instructor'
+        )
 
         # Add user's completion status if authenticated
         if self.request.user.is_authenticated:
@@ -203,6 +207,66 @@ def view_hint(request, hint_id):
             'content': hint.content,
             'points_penalty': 0
         })
+
+
+@login_required
+def exercise_create(request):
+    """Create an exercise (instructor/staff) — title, code, test cases, hints."""
+    if not (request.user.is_staff or request.user.user_type == 'instructor'):
+        from django.http import HttpResponseForbidden
+        return HttpResponseForbidden('Only instructors can create exercises')
+
+    if request.method == 'POST':
+        try:
+            import json as _json
+
+            title = (request.POST.get('title') or '').strip()
+            description = (request.POST.get('description') or '').strip()
+            difficulty = request.POST.get('difficulty', 'beginner')
+            points = int(request.POST.get('points', 10))
+            starter_code = request.POST.get('starter_code', '')
+            solution_code = request.POST.get('solution_code', '')
+            course_id = request.POST.get('course_id') or None
+
+            if not title or not description:
+                messages.error(request, '标题与题目描述不能为空')
+                return redirect('training:exercise-create')
+
+            # Test cases: function-mode JSON array or stdin/stdout pairs
+            try:
+                test_cases = _json.loads(request.POST.get('test_cases', '[]'))
+                if not isinstance(test_cases, list) or not test_cases:
+                    raise ValueError('test_cases 必须是非空 JSON 数组')
+            except (ValueError, _json.JSONDecodeError) as e:
+                messages.error(request, f'测试用例格式错误: {e}')
+                return redirect('training:exercise-create')
+
+            course = Course.objects.filter(pk=course_id).first() if course_id else None
+
+            exercise = Exercise.objects.create(
+                title=title, description=description, difficulty=difficulty,
+                points=points, starter_code=starter_code,
+                solution_code=solution_code, test_cases=test_cases,
+                course=course, created_by=request.user,
+            )
+
+            # Hints (up to 3, in order)
+            for i in range(1, 4):
+                hint_text = (request.POST.get(f'hint_{i}') or '').strip()
+                penalty = int(request.POST.get(f'hint_penalty_{i}', 2))
+                if hint_text:
+                    Hint.objects.create(
+                        exercise=exercise, content=hint_text, order=i,
+                        points_penalty=penalty)
+
+            messages.success(request, f'练习《{exercise.title}》已创建（立即对学生可见）')
+            return redirect('training:exercise-detail', slug=exercise.slug)
+        except Exception as e:
+            messages.error(request, f'创建失败: {e}')
+            return redirect('training:exercise-create')
+
+    context = {'courses': Course.objects.filter(is_published=True)}
+    return render(request, 'training/exercise_form.html', context)
 
 
 @login_required

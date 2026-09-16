@@ -104,6 +104,9 @@
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{% url 'examination:exam-list' %}">Exams</a>
+                        {% if user.is_authenticated and user.user_type == 'instructor' or user.is_staff %}
+                        <a class="nav-link" href="{% url 'learning:instructor-dashboard' %}">教学台</a>
+                        {% endif %}
                     </li>
                     {% if user.is_authenticated %}
                     <li class="nav-item">

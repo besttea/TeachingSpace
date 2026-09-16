@@ -29,21 +29,23 @@ class ChatAIService:
     """Service for AI-powered chat responses"""
 
     def __init__(self, client=None):
-        # A client may be injected (tests); otherwise build it from settings.
+        # A client may be injected (tests); otherwise build it from the
+        # multi-provider config (anthropic / deepseek / ...).
         if client is not None:
             self.client = client
+            self.model = getattr(settings, 'AI_MODEL', '') or 'claude-sonnet-4-5-20250929'
         else:
-            api_key = getattr(settings, 'ANTHROPIC_API_KEY', '')
-            base_url = getattr(settings, 'ANTHROPIC_API_BASE_URL', '')
-            if api_key:
-                if base_url:
-                    self.client = Anthropic(api_key=api_key, base_url=base_url)
-                else:
-                    self.client = Anthropic(api_key=api_key)
+            from apps.ai_agents.ai_config import api_key, base_url, is_configured, model_name
+
+            if is_configured():
+                client_kwargs = {'api_key': api_key()}
+                if base_url():
+                    client_kwargs['base_url'] = base_url()
+                self.client = Anthropic(**client_kwargs)
             else:
                 self.client = None
 
-        self.model = getattr(settings, 'ANTHROPIC_MODEL', '')
+            self.model = model_name()
 
     def get_available_resources(self) -> List[Dict[str, Any]]:
         """Get list of available learning resources (no filesystem paths —

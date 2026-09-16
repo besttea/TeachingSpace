@@ -16,6 +16,14 @@ DEBUG = config('DEBUG', default=True, cast=bool)
 
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=lambda v: [s.strip() for s in v.split(',')])
 
+# Hosts trusted for unsafe requests (CSRF). Needed when the site is reached
+# through a different origin than the host header — e.g. LAN IP, a reverse
+# proxy, or a custom domain. Comma-separated, with scheme:
+#   CSRF_TRUSTED_ORIGINS=http://192.168.1.10:8000,http://example.com
+CSRF_TRUSTED_ORIGINS = config(
+    'CSRF_TRUSTED_ORIGINS', default='',
+    cast=lambda v: [s.strip() for s in v.split(',') if s.strip()])
+
 
 # Application definition
 
@@ -172,6 +180,16 @@ CODE_EXECUTION_CPU_QUOTA = 50000  # 50% of one CPU
 CODE_EXECUTION_BACKEND = config('CODE_EXECUTION_BACKEND', default='subprocess')
 SANDBOX_DOCKER_IMAGE = config('SANDBOX_DOCKER_IMAGE', default='teaching-space-sandbox')
 
+# Jupyter kernel sessions (real notebook semantics for the learning class)
+# 'local' = ipykernel subprocess (DEV ONLY — full Python, never expose to
+# untrusted users); 'docker' = kernel inside the teaching-space-kernel
+# container (loopback-only ports, resource caps) — production mode.
+JUPYTER_KERNEL_BACKEND = config('JUPYTER_KERNEL_BACKEND', default='local')
+JUPYTER_KERNEL_IMAGE = config('JUPYTER_KERNEL_IMAGE', default='teaching-space-kernel')
+JUPYTER_KERNEL_IDLE_TIMEOUT = config('JUPYTER_KERNEL_IDLE_TIMEOUT', default=15 * 60, cast=int)
+JUPYTER_MAX_KERNELS = config('JUPYTER_MAX_KERNELS', default=20, cast=int)
+JUPYTER_EXECUTE_TIMEOUT = config('JUPYTER_EXECUTE_TIMEOUT', default=15, cast=int)
+
 # Email Configuration
 EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
 EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
@@ -180,11 +198,35 @@ EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 
-# AI/LLM Configuration
-ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
-ANTHROPIC_MODEL = config('ANTHROPIC_MODEL', default='claude-3-5-sonnet-20241022')
-ANTHROPIC_API_BASE_URL = config('ANTHROPIC_BASE_URL', default='')
+# AI/LLM Configuration — multi-provider support.
+# Every provider below is Anthropic-API-compatible (DeepSeek exposes an
+# Anthropic-compatible endpoint), so the same SDK client works for all.
+# Switch the active provider with AI_PROVIDER (e.g. AI_PROVIDER=deepseek);
+# optionally override the model with AI_MODEL.
+AI_PROVIDERS = {
+    'anthropic': {
+        'api_key': config('ANTHROPIC_API_KEY', default=''),
+        'base_url': config('ANTHROPIC_BASE_URL', default=''),
+        'default_model': config('ANTHROPIC_MODEL', default='claude-sonnet-4-5-20250929'),
+    },
+    'deepseek': {
+        'api_key': config('deepseek_Api', default=''),
+        'base_url': config('DEEPSEEK_BASE_URL', default='https://api.deepseek.com/anthropic'),
+        'default_model': config('DEEPSEEK_MODEL', default='deepseek-flash'),
+    },
+}
+AI_PROVIDER = config('AI_PROVIDER', default='anthropic')
+# Optional global model override (applies to whichever provider is active)
+AI_MODEL = config('AI_MODEL', default='')
+
+# Legacy aliases (kept so existing call sites keep working)
+ANTHROPIC_API_KEY = AI_PROVIDERS['anthropic']['api_key']
+ANTHROPIC_MODEL = AI_PROVIDERS['anthropic']['default_model']
+ANTHROPIC_API_BASE_URL = AI_PROVIDERS['anthropic']['base_url']
 AI_MAX_TOKENS = config('AI_MAX_TOKENS', default=4096, cast=int)
 AI_TEMPERATURE = config('AI_TEMPERATURE', default=0.7, cast=float)
 AI_CACHE_ENABLED = config('AI_CACHE_ENABLED', default=True, cast=bool)
 AI_COST_LIMIT_DAILY = config('AI_COST_LIMIT_DAILY', default=50.00, cast=float)
+# Cost estimation prices (USD per 1M tokens) — used by AIGenerationHistory
+AI_COST_INPUT_PER_MTOK = config('AI_COST_INPUT_PER_MTOK', default=3.0, cast=float)
+AI_COST_OUTPUT_PER_MTOK = config('AI_COST_OUTPUT_PER_MTOK', default=15.0, cast=float)

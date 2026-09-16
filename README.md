@@ -1,345 +1,104 @@
-# Python Learning Platform
+# Python 教学平台（TeachingSpace）
 
-A comprehensive web-based platform for learning Python programming with interactive Jupyter-style notebooks, coding exercises, and automated assessments.
+面向 Python 编程教学的交互式学习系统：Jupyter 式笔记本课堂、自动判分训练、限时考试与证书，内置多模型 AI 助手与内容生成能力。
 
-## Features
+当前版本：1.2.0
 
-### 🎓 Learning Class
-- **Jupyter-Style Notebook Interface**: Create interactive lessons with multiple cell types
-  - Text/Markdown cells with LaTeX math support
-  - Code cells with syntax highlighting and execution
-  - Image cells for visual content
-  - Video cells (YouTube, Vimeo, or direct uploads)
-- **Cell Management**: Drag-and-drop reordering, inline editing, version history
-- **Progress Tracking**: Track student completion and time spent
-- **Course Structure**: Organize content into courses → chapters → lessons
+## 📚 文档
 
-### 💪 Training Class
-- **Coding Exercises**: Hands-on programming challenges with auto-grading
-- **Progressive Hints**: Multi-level hint system with point penalties
-- **Auto-Grading**: Automated test execution and scoring
-- **Submission History**: Track all attempts and view detailed results
-- **Points System**: Earn points for successful solutions
-- **Difficulty Levels**: Beginner, Intermediate, and Advanced exercises
+| 文档 | 读者 | 内容 |
+|------|------|------|
+| [用户说明手册](docs/USER_MANUAL.md) | 学生 / 教师 / 管理员 | 三大课堂使用、AI 助手、证书、FAQ、故障排查 |
+| [程序员说明手册](docs/DEVELOPER_MANUAL.md) | 开发与维护工程师 | 架构、环境搭建、配置全表、核心系统设计、测试、部署、开发规范 |
+| [CLAUDE.md](CLAUDE.md) | AI 编程助手（Claude Code） | 项目上下文与工作约定 |
+| [CHANGELOG.md](CHANGELOG.md) | 所有人 | 版本发布记录 |
+| [OPTIMIZATION_PLAN.md](OPTIMIZATION_PLAN.md) | 开发工程师 | 安全审计与优化方案（含进度记录） |
 
-### 📝 Examination Class
-- **Timed Assessments**: Create exams with time limits
-- **Multiple Question Types**: Multiple choice, coding, and short answer
-- **Auto-Grading**: Automated evaluation with AI assistance
-- **Results Analytics**: Detailed performance analysis
-- **Certificate Generation**: PDF certificates for completed exams
+## ✨ 功能总览
 
-### 💬 AI Learning Assistant (Chat)
-- **Interactive Chat**: Ask questions and get instant AI-powered answers
-- **Resource Recommendations**: AI suggests relevant learning materials
-- **Conversation History**: Save and manage multiple chat sessions
-- **AJAX-Based Interface**: Smooth conversation experience without page reloads
-- **Context-Aware**: Understands your learning needs and progress
+### 🎓 学习课堂
 
-### 🔐 Authentication System
-- User registration and login
-- Role-based access (Student, Instructor, Admin)
-- Student profiles with progress tracking
-- Dashboard with statistics and analytics
+Jupyter 式笔记本界面：文本（Markdown + LaTeX）/ 代码（沙箱执行）/ 图片 / 视频四种单元格；拖拽排序、版本快照；选课与学习进度跟踪；ClassLib notebook 一键导入。
 
-### 🛠️ Code Execution Engine
-- **RestrictedPython**: Safe code execution for learning lessons
-- **Dual Test Mode Support**:
-  - stdin/stdout testing for input/output programs
-  - Function-based testing for algorithm challenges
-- **Sandboxing**: Restricted imports and operations for security
-- **Resource Limits**: Timeout and memory controls
-- Docker-based execution (planned) for advanced features
+### 💪 训练课堂
 
-### 🤖 AI-Powered Features
-- **Content Generation**: AI agents for creating lessons, exercises, and exams
-- **Learning Agent**: Generates lesson content and code examples
-- **Training Agent**: Creates coding exercises with test cases and hints
-- **Examination Agent**: Generates exam questions and evaluates answers
-- **Custom API Support**: Configure custom API endpoints for LLM services
+编程练习自动判分（stdin/stdout 与函数式双模式）、渐进提示（积分惩罚）、防刷积分系统、提交历史。
 
-## Technology Stack
+### 📝 考试课堂
 
-### Backend
-- **Django 5.0**: Full-stack web framework
-- **Python 3.11+**: Programming language
-- **SQLite/PostgreSQL**: Database
-- **RestrictedPython**: Secure code execution
+限时考试（**服务端强制计时**，刷新不清零）、四种题型（选择/判断/编程/简答）、答案自动保存、原子化交卷、AI 辅助评分、**PDF 证书 + 在线验证码查询**。
 
-### Frontend
-- **Bootstrap 5**: Responsive UI framework
-- **Alpine.js**: Lightweight JavaScript framework
-- **HTMX**: Dynamic HTML updates
-- **CodeMirror 6**: Code editor
-- **Marked.js**: Markdown rendering
-- **KaTeX**: LaTeX math rendering
-- **Prism.js**: Syntax highlighting
-- **SortableJS**: Drag-and-drop functionality
+### 💬 AI 学习助手与内容生成
 
-## Project Structure
+- 聊天助手可**查询平台真实课程资料**作答（Anthropic tool-use），并推荐学习资源；
+- 多模型支持：Claude / DeepSeek / 自定义代理一键切换（`AI_PROVIDER`）；
+- AI 生成课程单元 / 练习 / 考题（草稿审核制）/ Manim 视频脚本，含成本跟踪与日限额。
 
-```
-TeachingSpace/
-├── apps/
-│   ├── accounts/          # User authentication and profiles
-│   ├── learning/          # Learning Class (notebooks, courses)
-│   ├── training/          # Training Class (exercises, submissions)
-│   ├── examination/       # Examination Class (exams, certificates)
-│   ├── code_runner/       # Code execution engine
-│   ├── ai_agents/         # AI content generation
-│   └── video_generator/   # Manim video generation
-├── config/
-│   ├── settings/          # Django settings (base, dev, prod)
-│   ├── urls.py            # URL configuration
-│   └── wsgi.py / asgi.py  # WSGI/ASGI configuration
-├── templates/             # HTML templates
-│   ├── accounts/          # Auth templates
-│   ├── learning/          # Learning templates
-│   └── training/          # Training templates
-├── static/                # Static files (CSS, JS, images)
-├── media/                 # User-uploaded files
-├── manage.py              # Django management script
-└── requirements.txt       # Python dependencies
-```
+### 🛡️ 安全
 
-## Installation
+- 学生代码在**隔离沙箱**中执行：subprocess（默认）或 Docker 容器（网络禁用、资源受限、只读文件系统），双重防护（builtins 白名单 + AST 私有属性拦截 + 可选 RestrictedPython），强制超时；
+- 注册越权防护、开放重定向修复、全链路 XSS 消毒（DOMPurify / json_script / 转义）。
 
-### Prerequisites
-- Python 3.11 or higher
-- pip
-- virtualenv (recommended)
-- Git
+## 🚀 快速开始
 
-### Setup Steps
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/besttea/TeachingSpace.git
-   cd TeachingSpace
-   ```
-
-2. **Create and activate virtual environment**
-   ```bash
-   python -m venv venv
-
-   # On Windows
-   venv\Scripts\activate
-
-   # On macOS/Linux
-   source venv/bin/activate
-   ```
-
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Configure environment variables**
-   ```bash
-   # Copy example environment file
-   cp .env.example .env
-
-   # Edit .env and set your configuration
-   # Required: SECRET_KEY, DEBUG, DATABASE settings
-   ```
-
-5. **Run migrations**
-   ```bash
-   python manage.py migrate
-   ```
-
-6. **Create superuser**
-   ```bash
-   python manage.py createsuperuser
-   ```
-
-7. **Run development server**
-   ```bash
-   python manage.py runserver
-   ```
-
-8. **Access the platform**
-   - Open browser to: http://localhost:8000
-   - Admin panel: http://localhost:8000/admin
-
-## Database Models
-
-### Learning App
-- **Course**: Main course container with difficulty levels
-- **Chapter**: Course sections
-- **Lesson**: Notebook-style lessons
-- **Cell**: Individual content cells (text, code, image, video)
-- **CellVersion**: Cell edit history
-- **Enrollment**: Student course enrollment
-- **LessonProgress**: Track lesson completion
-
-### Training App
-- **Exercise**: Coding challenges
-- **Hint**: Progressive hints
-- **Submission**: Student code submissions
-- **HintUsage**: Track hint views
-
-### Accounts App
-- **User**: Custom user model (Student, Instructor, Admin)
-- **StudentProfile**: Extended profile with points and stats
-
-## Usage Guide
-
-### For Students
-
-1. **Register** an account and login
-2. **Browse Courses** and enroll in courses
-3. **Study Lessons**:
-   - Read text content
-   - Run code examples
-   - Watch video tutorials
-4. **Practice Exercises**:
-   - Solve coding challenges
-   - View hints if stuck
-   - Submit solutions for auto-grading
-5. **Track Progress** on your dashboard
-
-### For Instructors
-
-1. **Create Courses** via Django admin
-2. **Add Chapters and Lessons**
-3. **Edit Lessons** using the notebook editor:
-   - Add text, code, image, and video cells
-   - Reorder cells by dragging
-   - Preview in student view
-4. **Create Exercises** with test cases and hints
-
-### For Admins
-
-- Full access to Django admin panel
-- Manage users, courses, exercises
-- View system statistics
-- Monitor submissions and progress
-
-## API Endpoints
-
-### Learning API
-- `POST /learning/api/cells/create/` - Create new cell
-- `POST /learning/api/cells/<id>/update/` - Update cell
-- `POST /learning/api/cells/<id>/delete/` - Delete cell
-- `POST /learning/api/cells/<id>/execute/` - Execute code cell
-- `POST /learning/api/cells/reorder/` - Reorder cells
-
-### Training API
-- `POST /training/exercises/<slug>/submit/` - Submit solution
-- `POST /training/api/hints/<id>/view/` - View hint
-
-### Chat API
-- `POST /chat/api/send/` - Send message and get AI response
-- `GET /chat/api/conversation/<id>/` - Get conversation messages
-- `POST /chat/api/conversation/new/` - Create new conversation
-- `DELETE /chat/api/conversation/<id>/delete/` - Delete conversation
-
-## Development
-
-### Running Tests
 ```bash
-python manage.py test
+git clone https://github.com/besttea/TeachingSpace.git
+cd TeachingSpace
+
+python -m venv venv
+venv\Scripts\activate            # Windows；Linux/macOS: source venv/bin/activate
+pip install -r requirements.txt
+
+cp .env.example .env             # 按注释填写（AI 密钥等）
+python manage.py migrate --settings=config.settings.development
+python manage.py createsuperuser --settings=config.settings.development
+python manage.py runserver --settings=config.settings.development
 ```
 
-### Code Style
-Follow PEP 8 guidelines. Use:
+访问 http://localhost:8000 ｜ 管理后台 http://localhost:8000/admin
+
+可选组件（详见程序员手册）：
+
 ```bash
-flake8 .
-black .
+# 完整 OS 级代码隔离（Docker 沙箱）
+docker build -f docker/sandbox/Dockerfile -t teaching-space-sandbox .
+# .env 中设 CODE_EXECUTION_BACKEND=docker
+
+# 生产异步判分（Celery + Redis）
+celery -A config worker -l info
 ```
 
-### Database Migrations
+## 🧪 测试
+
 ```bash
-# Create new migrations
-python manage.py makemigrations
-
-# Apply migrations
-python manage.py migrate
-
-# Show migrations
-python manage.py showmigrations
+python -m pytest    # 69 个测试：沙箱逃逸、判分、权限、XSS、AI 工具循环、证书、真实 Manim 渲染等
 ```
 
-## Recent Updates
+## 🛠 技术栈
 
-### Version 1.1.0 (Latest)
-- ✅ **Examination Class**: Full implementation with auto-grading and AI evaluation
-- ✅ **AI Chat Assistant**: Interactive learning assistant with conversation history
-- ✅ **Enhanced Code Executor**: Dual-mode testing (stdin/stdout and function-based)
-- ✅ **AI Agents**: Learning, Training, and Examination agents for content generation
-- ✅ **Custom API Support**: Configure custom LLM API endpoints
-- ✅ **Notebook Import**: Import Jupyter notebooks with automatic chapter/lesson detection
-- ✅ **Cell Handlers**: Modular architecture for different cell types
-- 🔧 **Bug Fixes**: Template syntax errors, type errors in views
+Django 5.2 · Bootstrap 5 · Alpine.js · Marked.js + DOMPurify · KaTeX · SortableJS ｜ SQLite/PostgreSQL ｜ Anthropic SDK（多 provider）· Celery + Redis ｜ Manim + FFmpeg ｜ reportlab（中文证书）｜ Docker（沙箱）｜ pytest
 
-## Planned Features
+## 📁 结构速览
 
-- 🐳 **Docker Execution**: Full isolation for code execution
-- 🎬 **Manim Integration**: AI-generated educational videos
-- ⚡ **Celery Tasks**: Async processing for heavy operations
-- 📊 **Analytics Dashboard**: Advanced progress tracking
-- 💬 **Discussion Forums**: Student collaboration
-- 🏆 **Gamification**: Badges, leaderboards, achievements
-- 📱 **Mobile App**: Native iOS and Android applications
+```
+apps/accounts      认证与角色          apps/chat          AI 助手（工具调用）
+apps/learning      学习课堂            apps/ai_agents     AI 智能体 + 成本跟踪
+apps/training      训练课堂            apps/code_runner   沙箱执行（subprocess/Docker）
+apps/examination   考试课堂 + 证书     apps/video_generator  Manim 校验与渲染
+apps/core          共享解析器          ClassLib/          教学素材 notebook
+config/            设置/路由/Celery    docs/              本手册文档
+```
 
-## Contributing
+## 路线图
 
-Contributions are welcome! Please follow these steps:
+- 🚧 单元格版本恢复前端 UI（后端 API 已就绪）
+- 🚧 聊天流式响应
+- 📋 视频缩略图与 CDN 存档
+- 📋 讨论区、排行榜等社区功能
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+## 许可证与致谢
 
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- Built with Django framework
-- UI components from Bootstrap
-- Code editor powered by CodeMirror
-- Markdown rendering by Marked.js
-- Math rendering by KaTeX
-- Developed with assistance from Claude AI
-
-## Contact
+MIT License。UI 组件来自 Bootstrap；Markdown 渲染 Marked.js；数学渲染 KaTeX；开发辅助来自 Claude AI。
 
 - GitHub: [@besttea](https://github.com/besttea)
 - Email: best-tea@163.com
-
-## Project Status
-
-**Current Version**: 1.1.0
-
-### Completed ✅
-- ✅ **Authentication System**: User registration, login, role-based access
-- ✅ **Learning Class**: Jupyter-style notebook interface with cell management
-- ✅ **Training Class**: Coding exercises with auto-grading and hints
-- ✅ **Examination Class**: Timed assessments with multiple question types
-- ✅ **Code Execution Engine**: RestrictedPython with dual-mode testing
-- ✅ **AI Chat Assistant**: Interactive Q&A with conversation history
-- ✅ **AI Agents**: Content generation for lessons, exercises, and exams
-- ✅ **Notebook Import**: Import from Jupyter .ipynb files
-- ✅ **Progress Tracking**: Course progress and completion tracking
-- ✅ **Responsive UI**: Bootstrap 5 with modern design
-
-### In Progress 🚧
-- 🚧 **Video Generation**: Manim integration for educational videos
-- 🚧 **Docker Execution**: Full isolation for code execution
-- 🚧 **Celery Integration**: Async task processing
-- 🚧 **Advanced Analytics**: Detailed learning analytics dashboard
-
-### Planned 📋
-- 📋 **Discussion Forums**: Student collaboration and Q&A
-- 📋 **Gamification**: Badges, achievements, and leaderboards
-- 📋 **Mobile App**: Native iOS and Android applications
-- 📋 **Social Features**: Student profiles and networking
-- 📋 **Content Marketplace**: Share and sell courses
-
----
-
-**Note**: This platform is under active development. Some features may be incomplete or subject to change.

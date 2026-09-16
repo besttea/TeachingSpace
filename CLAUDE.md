@@ -243,8 +243,15 @@ python manage.py optimize_cell_images --settings=config.settings.development
   - Export to PDF, HTML, or standalone Python script
   - Import from .ipynb files with cell conversion
 
-### Notebook Material Parsing (ClassLib → content)
+### Jupyter Kernel Sessions (learning class execution)
 
+- The learning class runs code in **real ipykernel sessions** (`apps/learning/jupyter_kernel.py`): per (user, lesson) kernel with persistent variables, rich outputs (matplotlib images, tracebacks), execution counts; idle reaping + LRU cap; restart endpoint.
+- Two backends: `local` (dev-only subprocess kernel) and `docker` (`teaching-space-kernel` image, ZMQ ports published on 127.0.0.1 only, resource-capped). Production MUST use docker (`JUPYTER_KERNEL_BACKEND=docker`).
+- Timeouts: interrupt first (Windows interrupts are unreliable → automatic kernel restart fallback, already implemented).
+- Security boundary: the learning kernel is FULL Python inside a container (Colab-style); the strict sandbox (`apps/code_runner`) remains the only executor for training/exam grading. Never swap these.
+- Frontend renders kernel outputs with textContent / DOMPurify only (no raw innerHTML of kernel text).
+
+### Notebook Material Parsing (ClassLib → content)
 - **Shared parser**: `apps/core/notebook_parser.py` (pure stdlib, no Django dependency) is the single source of truth for parsing `ClassLib/*.ipynb` materials. Both management commands and the Claude Code skill `.claude/skills/notebook-reader/` use it.
 - Conventions it understands: `第X章` chapter headings (Chinese numerals OK), `X.Y 标题` lesson sections, `X.Y.Z` subsections; noise cells (LaTeX symbol tables, pasted README pages, `!pip` cells, TOC links, empty cells) are flagged and excluded from AI-generated content.
 - Management commands `import_notebook` (splits into lessons at X.Y headings) and `load_notebook_data` (single lesson) share it; both are idempotent (re-run clears and rebuilds cells) and never create users with hardcoded passwords.
@@ -481,13 +488,18 @@ Create a `.env` file based on `.env.example`:
 - `DB_*`: Database configuration
 - `REDIS_URL`: Redis connection for Celery
 - `EMAIL_*`: Email configuration
-- **AI/LLM Configuration**:
-  - `ANTHROPIC_API_KEY`: Anthropic Claude API key (required for AI agents)
-  - `ANTHROPIC_MODEL`: Model version (default: claude-3-5-sonnet-20241022)
+- **AI/LLM Configuration** (multi-provider, see `apps/ai_agents/ai_config.py`):
+  - `AI_PROVIDER`: active provider — `anthropic` (default) or `deepseek`
+  - `ANTHROPIC_API_KEY`: Anthropic API key (or a compatible proxy's key)
+  - `ANTHROPIC_MODEL`: Anthropic model version (default: claude-sonnet-4-5-20250929)
+  - `ANTHROPIC_BASE_URL`: optional custom/proxy endpoint
+  - `deepseek_Api`: DeepSeek API token (read from this env var; DeepSeek's Anthropic-compatible endpoint is used, default `DEEPSEEK_MODEL=deepseek-chat`)
+  - `AI_MODEL`: optional global model override for the active provider
   - `AI_MAX_TOKENS`: Maximum tokens per request (default: 4096)
   - `AI_TEMPERATURE`: Generation temperature 0-1 (default: 0.7)
   - `AI_CACHE_ENABLED`: Enable response caching (True/False)
-  - `AI_COST_LIMIT_DAILY`: Daily cost limit in USD (optional)
+  - `AI_COST_LIMIT_DAILY`: Daily cost limit in USD (optional, enforced in `BaseAgent`/chat)
+  - Switching example: set `AI_PROVIDER=deepseek` + `deepseek_Api=sk-...` in `.env` — all agents, the chat assistant, and essay grading follow automatically
 - **Video Generation Configuration**:
   - `MANIM_QUALITY`: Default render quality (low/medium/high/production)
   - `MANIM_OUTPUT_DIR`: Directory for rendered videos

@@ -1,0 +1,133 @@
+{% extends 'base.html' %}
+
+{% block title %}教师工作台 - Python Learning{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-easel"></i> 教师工作台</h2>
+        <a href="{% url 'home' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-house"></i> 返回首页
+        </a>
+    </div>
+
+    {% if messages %}
+        {% for message in messages %}
+        <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="row">
+        <!-- 我的课程 -->
+        <div class="col-lg-8">
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-journal-bookmark"></i> 我的课程（{{ courses.count }}）</h5>
+                </div>
+                <div class="list-group list-group-flush">
+                    {% for course in courses %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>{{ course.title }}</strong>
+                            <span class="badge {% if course.is_published %}bg-success{% else %}bg-warning text-dark{% endif %} ms-2">
+                                {{ course.is_published|yesno:"已发布,草稿" }}
+                            </span>
+                            <br>
+                            <small class="text-muted">
+                                {{ course.difficulty_level }} ｜
+                                {{ course.chapters.count }} 章 ｜
+                                {{ course.enrollments.count }} 名学员
+                            </small>
+                        </div>
+                        <div class="btn-group">
+                            <a href="{% url 'learning:instructor-course-manage' course.slug %}"
+                               class="btn btn-sm btn-primary">
+                                <i class="bi bi-pencil"></i> 管理
+                            </a>
+                            <a href="{% url 'learning:instructor-student-roster' course.slug %}"
+                               class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-people"></i> 学员
+                            </a>
+                        </div>
+                    </div>
+                    {% empty %}
+                    <div class="list-group-item text-muted">
+                        还没有课程。右侧表单创建你的第一门课程；也可以使用 AI 一键生成（见管理员文档）。
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- 新建课程 -->
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-plus-circle"></i> 新建课程</h5>
+                </div>
+                <div class="card-body">
+                    <form method="post" action="{% url 'learning:instructor-course-create' %}">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label class="form-label">课程标题 *</label>
+                            <input type="text" class="form-control" name="title" required
+                                   placeholder="如：Python 基础">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">课程简介</label>
+                            <textarea class="form-control" name="description" rows="3"
+                                      placeholder="这门课讲什么……"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">难度</label>
+                            <select class="form-select" name="difficulty">
+                                <option value="beginner" selected>初级</option>
+                                <option value="intermediate">中级</option>
+                                <option value="advanced">高级</option>
+                            </select>
+                        </div>
+
+                        <div class="card bg-light bg-opacity-50 border-primary-subtle mb-3">
+                            <div class="card-body py-2">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch"
+                                           name="ai_design" value="on" id="aiDesignToggle" checked>
+                                    <label class="form-check-label fw-semibold" for="aiDesignToggle">
+                                        <i class="bi bi-stars text-warning"></i> AI 辅助设计课程
+                                    </label>
+                                </div>
+                                <small class="text-muted">
+                                    AI 生成章节与课程单元大纲，确认后逐单元生成内容
+                                </small>
+                                <div id="aiDesignOptions" class="mt-2">
+                                    <label class="form-label small mb-1">章节数</label>
+                                    <input type="number" class="form-control form-control-sm"
+                                           name="chapter_count" value="3" min="1" max="10">
+                                    <div class="form-check mt-2">
+                                        <input class="form-check-input" type="checkbox"
+                                               name="use_classlib" value="on" id="useClasslibToggle" checked>
+                                        <label class="form-check-label small" for="useClasslibToggle">
+                                            自动检索 ClassLib 教学文档作为素材（内容更贴合现有资料）
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-check-lg"></i> 创建（草稿状态）
+                        </button>
+                    </form>
+                    <hr>
+                    <small class="text-muted">
+                        新课程默认为<strong>草稿</strong>，学生不可见；内容完善后在课程详情页发布。
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

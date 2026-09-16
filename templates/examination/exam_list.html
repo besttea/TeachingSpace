@@ -9,6 +9,13 @@
             <h2><i class="bi bi-clipboard-check"></i> 可用考试</h2>
             <p class="text-muted">选择一个考试开始测试您的Python知识</p>
         </div>
+        {% if user.is_staff or user.user_type == 'instructor' %}
+        <div class="col-auto align-self-center">
+            <a href="{% url 'examination:exam-manage' %}" class="btn btn-outline-primary">
+                <i class="bi bi-gear"></i> 考试管理
+            </a>
+        </div>
+        {% endif %}
     </div>
 
     {% if exams %}

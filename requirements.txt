@@ -1,6 +1,6 @@
 # Core Django
 Django==5.2.8
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.10
 python-decouple==3.8
 
 # REST API (not yet wired up — planned for public APIs)
@@ -9,41 +9,46 @@ djangorestframework==3.14.0
 # Code Execution
 # NOTE: RestrictedPython is OPTIONAL hardening for the sandbox executor —
 # the executor strengthens automatically when the package is installed.
-RestrictedPython==7.0
+# (Python 3.13 needs 8.x; 7.0 was yanked from PyPI due to a sandbox escape.)
+RestrictedPython==8.5
 
 # File Handling
-Pillow==10.1.0
+Pillow==11.3.0
 
-# PDF Generation (certificates — planned)
-weasyprint==60.1
-reportlab==4.0.7
+# PDF Generation (certificates)
+reportlab==5.0.1
 
 # Markdown Support
 markdown==3.5.1
 
-# AI/LLM Integration
+# AI/LLM Integration (multi-provider: Anthropic / DeepSeek / proxies)
 anthropic==0.75.0
 
-# Video Generation (planned — video_generator app is not implemented yet)
-manim==0.18.0
+# Video Generation (Manim rendering via CLI; FFmpeg binary must be on PATH)
+manim==0.19.1
 ffmpeg-python==0.2.0
 
-# Task Queue (planned — Celery app not wired up yet)
-celery==5.3.4
-redis==5.0.1
+# Notebook Interface (real Jupyter kernel sessions — see JUPYTER_KERNEL_BACKEND)
+jupyter_client==8.6.3
+ipykernel==6.29.5
+
+# Task Queue (eager inline by default in DEBUG — see CELERY_ALWAYS_EAGER)
+celery==5.6.3
+redis==8.1.0
 
 # Monitoring and Logging (production uses Sentry when SENTRY_DSN is set)
-sentry-sdk==1.38.0
+sentry-sdk==2.0.1
 
 # Testing
-pytest==7.4.3
-pytest-django==4.7.0
+pytest==8.3.4
+pytest-django==4.14.0
 factory-boy==3.3.0
 
-# Production Server
-gunicorn==21.2.0
+# Production Server (static files via WhiteNoise)
+# NOTE: gunicorn is Linux-only — install it on the production server:
+#   pip install gunicorn==21.2.0
 whitenoise==6.6.0
 
 # Development
-django-debug-toolbar==4.2.0
+django-debug-toolbar==5.1.0
 django-extensions==3.2.3

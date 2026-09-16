@@ -73,6 +73,80 @@
         </div>
     </div>
 
+    {% if can_edit %}
+    <!-- 教师工作区 -->
+    <div class="card border-primary mt-4">
+        <div class="card-header bg-primary bg-opacity-10">
+            <h5 class="mb-0"><i class="bi bi-tools"></i> 教师工作区</h5>
+        </div>
+        <div class="card-body">
+            <div class="d-flex flex-wrap gap-3 mb-3">
+                <button class="btn btn-sm btn-{{ course.is_published|yesno:'warning,success' }}"
+                        onclick="toggleCoursePublish(this)">
+                    <i class="bi bi-{{ course.is_published|yesno:'eye-slash,eye' }}"></i>
+                    {{ course.is_published|yesno:"下线为草稿,发布课程" }}
+                </button>
+                <a href="{% url 'learning:instructor-student-roster' course.slug %}"
+                   class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-people"></i> 查看学员进度
+                </a>
+                <span class="text-muted small align-self-center">
+                    当前状态：{% if course.is_published %}<span class="badge bg-success">已发布</span>{% else %}<span class="badge bg-warning text-dark">草稿</span>{% endif %}
+                    发布后学生才能在课程列表看到本课
+                </span>
+            </div>
+
+            <!-- 添加章节 -->
+            <form method="post" action="{% url 'learning:instructor-chapter-create' course.slug %}"
+                  class="row g-2 mb-4">
+                {% csrf_token %}
+                <div class="col-md-4">
+                    <input type="text" class="form-control form-control-sm" name="title"
+                           placeholder="新章节标题，如：第2章 流程控制" required>
+                </div>
+                <div class="col-md-5">
+                    <input type="text" class="form-control form-control-sm" name="description"
+                           placeholder="章节简介（可选）">
+                </div>
+                <div class="col-md-3">
+                    <button type="submit" class="btn btn-sm btn-primary w-100">
+                        <i class="bi bi-plus-circle"></i> 添加章节
+                    </button>
+                </div>
+            </form>
+
+            <!-- 添加课程单元（选择章节） -->
+            <form method="post" action="{% url 'learning:instructor-lesson-create' course.slug %}"
+                  class="row g-2">
+                {% csrf_token %}
+                <div class="col-md-3">
+                    <select class="form-select form-select-sm" name="chapter_id" required>
+                        <option value="">选择章节…</option>
+                        {% for item in chapters_data %}
+                        <option value="{{ item.chapter.id }}">
+                            第{{ item.chapter.order|add:1 }}章 {{ item.chapter.title }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <input type="text" class="form-control form-control-sm" name="title"
+                           placeholder="新课程单元标题，如：2.1 条件语句" required>
+                </div>
+                <div class="col-md-3">
+                    <input type="text" class="form-control form-control-sm" name="description"
+                           placeholder="课程单元简介（可选）">
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-sm btn-outline-primary w-100">
+                        <i class="bi bi-plus-circle"></i> 新建课程单元
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Course Content (Chapters and Lessons) -->
     <div class="row">
         <div class="col-12">
@@ -81,8 +155,8 @@
             </h2>
 
             {% for item in chapters_data %}
-            <div class="card mb-3">
-                <div class="card-header bg-light">
+            <div class="card mb-3" id="chapter-card-{{ item.chapter.id }}">
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
                     <h4 class="mb-0">
                         <button class="btn btn-link text-decoration-none text-dark w-100 text-start"
                                 type="button"
@@ -92,6 +166,13 @@
                             <span class="badge bg-secondary float-end">{{ item.lessons|length }} lessons</span>
                         </button>
                     </h4>
+                    {% if can_edit %}
+                    <button class="btn btn-sm btn-outline-primary ms-3 text-nowrap"
+                            onclick="generateChapter({{ item.chapter.id }})"
+                            id="chapter-gen-{{ item.chapter.id }}">
+                        <i class="bi bi-stars"></i> AI 生成本章
+                    </button>
+                    {% endif %}
                 </div>
                 <div id="chapter-{{ item.chapter.id }}" class="collapse {% if forloop.first %}show{% endif %}">
                     <div class="card-body">
@@ -120,6 +201,18 @@
                                     </small>
                                 </div>
                                 <div>
+                                    <span class="badge {% if lesson_item.cell_count %}bg-success bg-opacity-25 text-success{% else %}bg-secondary bg-opacity-25 text-secondary{% endif %} me-1"
+                                          id="cell-badge-{{ lesson.pk }}">
+                                        {{ lesson_item.cell_count|default:0 }} 单元格
+                                    </span>
+                                    {% if can_edit %}
+                                    <button class="btn btn-sm btn-{% if lesson_item.cell_count %}outline-warning{% else %}outline-primary{% endif %} ms-1"
+                                            id="gen-btn-{{ lesson.pk }}"
+                                            onclick="generateLesson({{ lesson.pk }})">
+                                        <i class="bi bi-{% if lesson_item.cell_count %}arrow-repeat{% else %}magic{% endif %}"></i>
+                                        {% if lesson_item.cell_count %}重新生成{% else %}AI 生成{% endif %}
+                                    </button>
+                                    {% endif %}
                                     {% if lesson.status == 'published' %}
                                         {% if is_enrolled %}
                                         <a href="{% url 'learning:lesson-detail' pk=lesson.pk %}" class="btn btn-sm btn-primary">
@@ -132,6 +225,12 @@
                                         {% endif %}
                                     {% else %}
                                     <span class="badge bg-warning">{{ lesson.get_status_display }}</span>
+                                    {% endif %}
+                                    {% if can_edit %}
+                                    <button class="btn btn-sm btn-{% if lesson.status == 'published' %}warning{% else %}success{% endif %} ms-1"
+                                            onclick="toggleLessonPublish(this, {{ lesson.pk }})">
+                                        {% if lesson.status == 'published' %}下线{% else %}发布{% endif %}
+                                    </button>
                                     {% endif %}
                                 </div>
                             </li>
@@ -203,4 +302,152 @@
     </div>
     {% endif %}
 </div>
+
+{% if can_edit %}
+<script>
+    function toggleCoursePublish(btn) {
+        fetch("{% url 'learning:instructor-course-publish' course.slug %}", {
+            method: 'POST',
+            headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+            body: JSON.stringify({action: '{{ course.is_published|yesno:"unpublish,publish" }}'})
+        }).then(r => r.json()).then(data => {
+            if (data.success) location.reload();
+            else alert(data.error || '操作失败');
+        });
+    }
+
+    function toggleLessonPublish(btn, lessonPk) {
+        const action = btn.textContent.trim() === '发布' ? 'publish' : 'unpublish';
+        fetch(`/learning/api/lessons/${lessonPk}/publish/`, {
+            method: 'POST',
+            headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+            body: JSON.stringify({action: action})
+        }).then(r => r.json()).then(data => {
+            if (data.success) location.reload();
+            else alert(data.error || '操作失败');
+        });
+    }
+
+    // AI 内容生成：单个课程单元
+    async function generateLesson(lessonId) {
+        const btn = document.getElementById(`gen-btn-${lessonId}`);
+        const badge = document.getElementById(`cell-badge-${lessonId}`);
+        if (!btn) return;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 生成中…';
+
+        try {
+            const response = await fetch(`/learning/api/lessons/${lessonId}/ai-generate/`, {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+                body: JSON.stringify({})
+            });
+            const data = await response.json();
+            if (data.success) {
+                if (badge) {
+                    badge.className = 'badge bg-success bg-opacity-25 text-success';
+                    badge.textContent = `${data.cell_count} 单元格` + (data.grounded ? '（素材接地）' : '');
+                }
+                btn.className = 'btn btn-sm btn-outline-warning ms-1';
+                btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> 重新生成';
+                if (data.grounded) {
+                    alert(`已生成 ${data.cell_count} 个单元格（已用 ClassLib 素材接地）`);
+                }
+            } else {
+                alert('AI 生成失败: ' + (data.error || '请确认已配置 AI 密钥'));
+                btn.innerHTML = '<i class="bi bi-magic"></i> AI 生成';
+            }
+        } catch (error) {
+            alert('AI 生成失败，请重试。');
+            btn.innerHTML = '<i class="bi bi-magic"></i> AI 生成';
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    // AI 内容生成：整章流程（无课程单元时先规划，再逐个填充内容）
+    async function generateChapter(chapterId) {
+        const card = document.getElementById(`chapter-card-${chapterId}`);
+        if (!card) return;
+        let buttons = [...card.querySelectorAll('[id^="gen-btn-"]')];
+        const chapterBtn = document.getElementById(`chapter-gen-${chapterId}`);
+        if (chapterBtn) {
+            chapterBtn.disabled = true;
+            chapterBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 生成中…';
+        }
+
+        try {
+            // 本章还没有课程单元 → AI 先规划单元列表
+            if (!buttons.length) {
+                if (!confirm('本章还没有课程单元。让 AI 先规划本章的课程单元吗？')) {
+                    restoreChapterBtn(chapterBtn);
+                    return;
+                }
+                chapterBtn && (chapterBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 规划单元…');
+                const planResponse = await fetch(`/learning/api/chapters/${chapterId}/ai-plan/`, {
+                    method: 'POST',
+                    headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+                    body: JSON.stringify({})
+                });
+                const planData = await planResponse.json();
+                if (!planData.success) {
+                    alert('规划失败: ' + (planData.error || '请确认已配置 AI 密钥'));
+                    restoreChapterBtn(chapterBtn);
+                    return;
+                }
+                // 直接为新单元填充内容
+                const newLessons = planData.lessons || [];
+                for (let i = 0; i < newLessons.length; i++) {
+                    chapterBtn && (chapterBtn.innerHTML =
+                        `<i class="bi bi-hourglass-split"></i> ${i + 1}/${newLessons.length}`);
+                    await generateLessonDirect(newLessons[i].id, chapterBtn);
+                }
+                location.reload();  // 刷新以显示新单元与状态
+                return;
+            }
+
+            if (!confirm(`将按顺序为本章 ${buttons.length} 个课程单元生成内容（约需 ${buttons.length * 20} 秒），继续？`)) {
+                restoreChapterBtn(chapterBtn);
+                return;
+            }
+            let done = 0;
+            for (const btn of buttons) {
+                const lessonId = btn.id.replace('gen-btn-', '');
+                chapterBtn && (chapterBtn.innerHTML =
+                    `<i class="bi bi-hourglass-split"></i> ${++done}/${buttons.length}`);
+                await generateLesson(parseInt(lessonId));
+            }
+            alert('本章内容生成完毕，可在编辑器中逐单元微调。');
+        } catch (error) {
+            alert('生成失败: ' + (error.message || '请重试'));
+        } finally {
+            restoreChapterBtn(chapterBtn);
+        }
+    }
+
+    function restoreChapterBtn(chapterBtn) {
+        if (chapterBtn) {
+            chapterBtn.disabled = false;
+            chapterBtn.innerHTML = '<i class="bi bi-stars"></i> AI 生成本章';
+        }
+    }
+
+    // 不依赖 DOM 按钮的生成（用于刚规划出的新单元）
+    async function generateLessonDirect(lessonId, chapterBtn) {
+        try {
+            const response = await fetch(`/learning/api/lessons/${lessonId}/ai-generate/`, {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+                body: JSON.stringify({})
+            });
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.error || '生成失败');
+            }
+        } catch (error) {
+            throw error;
+        }
+    }
+</script>
+{% endif %}
 {% endblock %}

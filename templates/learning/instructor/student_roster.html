@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+
+{% block title %}学员进度：{{ course.title }} - Python Learning{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-people"></i> 学员进度：{{ course.title }}</h2>
+        <a href="{% url 'learning:instructor-course-manage' course.slug %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> 返回课程
+        </a>
+    </div>
+
+    <div class="card">
+        <div class="card-header bg-light">
+            <h5 class="mb-0">共 {{ roster|length }} 名学员</h5>
+        </div>
+        <table class="table table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>学员</th>
+                    <th>选课时间</th>
+                    <th>已完成课程单元</th>
+                    <th class="w-25">课程进度</th>
+                    <th>完成状态</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in roster %}
+                <tr>
+                    <td>
+                        <i class="bi bi-person-circle"></i>
+                        {{ row.student.get_full_name|default:row.student.username }}
+                        <small class="text-muted d-block">{{ row.student.email }}</small>
+                    </td>
+                    <td>{{ row.enrolled_at|date:"Y-m-d" }}</td>
+                    <td>{{ row.completed_lessons }} / {{ row.total_lessons }}</td>
+                    <td>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar" style="width: {{ row.progress_percentage }}%"></div>
+                        </div>
+                        <small class="text-muted">{{ row.progress_percentage|floatformat:0 }}%</small>
+                    </td>
+                    <td>
+                        {% if row.student and row.total_lessons and row.completed_lessons == row.total_lessons %}
+                        <span class="badge bg-success">已完成</span>
+                        {% else %}
+                        <span class="badge bg-secondary">进行中</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="5" class="text-muted text-center py-4">暂无学员选课</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

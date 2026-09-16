@@ -345,10 +345,11 @@ def submit_exam(request):
                             answer.save()
 
                 # Grade essay questions with the AI (falls back to manual
-                # review 'needs_review' when no API key is configured)
+                # review 'needs_review' when no AI key is configured)
                 elif answer.question.question_type == 'essay':
+                    from apps.ai_agents.ai_config import is_configured
                     essay_question = answer.question.get_specific_question()
-                    if essay_question and getattr(settings, 'ANTHROPIC_API_KEY', ''):
+                    if essay_question and is_configured():
                         try:
                             from apps.ai_agents.examination_agent import ExaminationAgent
                             evaluation = ExaminationAgent().evaluate_essay_answer(
@@ -402,6 +403,43 @@ def submit_exam(request):
             'success': False,
             'error': '交卷失败，请重试'
         }, status=400)
+
+
+class InstructorExamListView(LoginRequiredMixin, TemplateView):
+    """Instructor console: own exams (incl. drafts) with publish controls."""
+
+    template_name = 'examination/instructor_exams.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        if not (user.is_staff or user.user_type == 'instructor'):
+            from django.core.exceptions import PermissionDenied
+            raise PermissionDenied
+
+        exams = Exam.objects.filter(created_by=user).annotate(
+            question_count=Count('questions'),
+            attempt_count=Count('student_attempts'),
+        ).order_by('-created_at')
+        context['exams'] = exams
+        return context
+
+
+@login_required
+@require_http_methods(["POST"])
+def exam_publish(request, pk):
+    """Publish/unpublish an exam (creator or staff)."""
+    exam = get_object_or_404(Exam, pk=pk)
+    if not (request.user == exam.created_by or request.user.is_staff):
+        return JsonResponse({'success': False, 'error': 'Permission denied'}, status=403)
+    action = (request.POST.get('action') or 'publish').strip()
+    exam.is_published = (action == 'publish')
+    exam.save()
+    return JsonResponse({
+        'success': True,
+        'is_published': exam.is_published,
+        'message': '考试已发布' if exam.is_published else '考试已下线为草稿',
+    })
 
 
 class ExamResultsView(LoginRequiredMixin, DetailView):

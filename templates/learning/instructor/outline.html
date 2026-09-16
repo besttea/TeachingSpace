@@ -1,0 +1,142 @@
+{% extends 'base.html' %}
+
+{% block title %}AI 课程大纲：{{ course.title }} - Python Learning{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2><i class="bi bi-stars text-warning"></i> AI 课程大纲：{{ course.title }}</h2>
+        <div>
+            <a href="{% url 'learning:instructor-course-manage' course.slug %}"
+               class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-gear"></i> 课程管理
+            </a>
+        </div>
+    </div>
+
+    {% if messages %}
+        {% for message in messages %}
+        <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="alert alert-info d-flex justify-content-between align-items-center">
+        <span>
+            <i class="bi bi-info-circle"></i>
+            大纲已生成。为每个课程单元点击「生成内容」——AI 将自动检索 ClassLib 教学文档作为素材接地。
+        </span>
+        <button class="btn btn-primary btn-sm" onclick="generateAll()"
+                {% if not total_empty %}disabled{% endif %}>
+            <i class="bi bi-magic"></i> 一键生成全部（{{ total_empty }} 个待生成）
+        </button>
+    </div>
+
+    <div id="progressBar" class="alert alert-warning d-none">
+        <i class="bi bi-hourglass-split"></i>
+        <span id="progressText">正在生成…</span>
+    </div>
+
+    {% for item in chapters %}
+    <div class="card mb-3">
+        <div class="card-header bg-light">
+            <strong>第 {{ item.chapter.order|add:1 }} 章 {{ item.chapter.title }}</strong>
+            <span class="text-muted small ms-2">{{ item.chapter.description }}</span>
+        </div>
+        <div class="list-group list-group-flush">
+            {% for lesson_item in item.lessons %}
+            {% with lesson=lesson_item.lesson %}
+            <div class="list-group-item d-flex justify-content-between align-items-center"
+                 id="lesson-row-{{ lesson.id }}">
+                <div>
+                    <i class="bi bi-file-earmark-text"></i>
+                    <strong>{{ lesson.title }}</strong>
+                    <span class="text-muted small ms-2">{{ lesson.description }}</span>
+                    <br>
+                    <small class="text-muted">
+                        {% if lesson_item.cell_count %}
+                        <span class="badge bg-success bg-opacity-25 text-success" id="cell-badge-{{ lesson.id }}">
+                            {{ lesson_item.cell_count }} 个单元格
+                        </span>
+                        {% else %}
+                        <span class="badge bg-secondary bg-opacity-25 text-secondary" id="cell-badge-{{ lesson.id }}">
+                            未生成
+                        </span>
+                        {% endif %}
+                    </small>
+                </div>
+                <div class="btn-group">
+                    {% if lesson_item.cell_count %}
+                    <a href="{% url 'learning:lesson-edit' lesson.pk %}" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-pencil"></i> 编辑
+                    </a>
+                    {% endif %}
+                    <button class="btn btn-sm btn-{% if lesson_item.cell_count %}outline-warning{% else %}primary{% endif %}"
+                            id="gen-btn-{{ lesson.id }}"
+                            onclick="generateLesson({{ lesson.id }})">
+                        <i class="bi bi-{% if lesson_item.cell_count %}arrow-repeat{% else %}magic{% endif %}"></i>
+                        {% if lesson_item.cell_count %}重新生成{% else %}生成内容{% endif %}
+                    </button>
+                </div>
+            </div>
+            {% endwith %}
+            {% endfor %}
+        </div>
+    </div>
+    {% empty %}
+    <div class="alert alert-info">大纲为空——回到课程管理页手动添加章节。</div>
+    {% endfor %}
+</div>
+
+<script>
+    async function generateLesson(lessonId) {
+        const btn = document.getElementById(`gen-btn-${lessonId}`);
+        const badge = document.getElementById(`cell-badge-${lessonId}`);
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 生成中…';
+
+        try {
+            const response = await fetch(`/learning/api/lessons/${lessonId}/ai-generate/`, {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+                body: JSON.stringify({})
+            });
+            const data = await response.json();
+            if (data.success) {
+                badge.className = 'badge bg-success bg-opacity-25 text-success';
+                badge.textContent = `${data.cell_count} 个单元格` + (data.grounded ? '（素材接地）' : '');
+                btn.className = 'btn btn-sm btn-outline-warning';
+                btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> 重新生成';
+            } else {
+                alert('生成失败: ' + (data.error || ''));
+                btn.innerHTML = '<i class="bi bi-magic"></i> 生成内容';
+            }
+        } catch (error) {
+            alert('生成失败，请重试。');
+            btn.innerHTML = '<i class="bi bi-magic"></i> 生成内容';
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    async function generateAll() {
+        const buttons = [...document.querySelectorAll('[id^="gen-btn-"]')];
+        const pending = buttons.filter(b => !b.textContent.includes('重新'));
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        progressBar.classList.remove('d-none');
+
+        let done = 0;
+        for (const btn of pending) {
+            const lessonId = btn.id.replace('gen-btn-', '');
+            progressText.textContent = `正在生成 ${++done}/${pending.length}…`;
+            await generateLesson(parseInt(lessonId));
+        }
+        progressText.textContent = '全部生成完毕！可进入课程管理页逐单元编辑与发布。';
+        progressBar.classList.remove('alert-warning');
+        progressBar.classList.add('alert-success');
+    }
+</script>
+{% endblock %}

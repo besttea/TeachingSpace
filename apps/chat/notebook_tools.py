@@ -19,6 +19,7 @@ in our code with:
 
 import json
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 from django.conf import settings
@@ -187,6 +188,59 @@ def get_notebook_section(filename: str, section: str) -> Dict[str, Any]:
     if content is None:
         return _section_error(doc, section)
     return {"section": content[:MAX_RESULT_CHARS]}
+
+
+def find_related_sections(query: str, max_sections: int = 3,
+                          max_chars: int = MAX_RESULT_CHARS) -> str:
+    """Scan ClassLib notebooks for sections related to ``query``.
+
+    Used to auto-ground AI course generation in existing teaching material:
+    returns the combined content of the best-matching sections ('' when
+    nothing matches). Matching is a simple title/text overlap — good enough
+    for Chinese teaching topics; deterministic and free.
+    """
+    if not query:
+        return ''
+
+    classlib_dir = _classlib_dir()
+    if not os.path.isdir(classlib_dir):
+        return ''
+
+    tokens = [t for t in re.split(r'[\s，,、。;；:：/\\|]+', query) if len(t) >= 2]
+    candidates = []  # (score, label, content)
+
+    for filename in sorted(os.listdir(classlib_dir)):
+        if not filename.endswith('.ipynb'):
+            continue
+        try:
+            doc = parse_notebook(os.path.join(classlib_dir, filename))
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        for section in doc.sections:
+            if section.number == '':  # intro sections carry no topic
+                continue
+            score = 0
+            if query in section.label or section.label in query:
+                score += 5
+            for token in tokens:
+                if token in section.title:
+                    score += 3
+                elif section.title in token:
+                    score += 2
+            if score <= 0:
+                continue
+            content = _section_content(doc, section.number) or ''
+            candidates.append((score, f'{filename} · {section.label}', content))
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    picked = candidates[:max_sections]
+    if not picked:
+        return ''
+
+    parts = []
+    for _score, label, content in picked:
+        parts.append(f'【素材：{label}】\n{content}')
+    return ('\n\n'.join(parts))[:max_chars]
 
 
 TOOL_EXECUTORS = {

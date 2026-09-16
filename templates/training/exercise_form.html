@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+
+{% block title %}创建练习 - Python Learning{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <h2 class="mb-4"><i class="bi bi-pencil-square"></i> 创建编程练习</h2>
+
+    {% if messages %}
+        {% for message in messages %}
+        <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+    {% endif %}
+
+    <form method="post" class="card">
+        {% csrf_token %}
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">标题 *</label>
+                    <input type="text" class="form-control" name="title" required
+                           placeholder="如：两数之和">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">难度</label>
+                    <select class="form-select" name="difficulty">
+                        <option value="beginner" selected>初级</option>
+                        <option value="intermediate">中级</option>
+                        <option value="advanced">高级</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">满分</label>
+                    <input type="number" class="form-control" name="points" value="10" min="1">
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">所属课程（可选）</label>
+                    <select class="form-select" name="course_id">
+                        <option value="">不关联课程</option>
+                        {% for course in courses %}
+                        <option value="{{ course.id }}">{{ course.title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-6"></div>
+
+                <div class="col-12">
+                    <label class="form-label">题目描述 *（支持 Markdown）</label>
+                    <textarea class="form-control" name="description" rows="5" required
+                              placeholder="## 题目&#10;&#10;编写函数 add(a, b)，返回两数之和。&#10;&#10;示例：add(2, 3) == 5"></textarea>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">起始代码模板</label>
+                    <textarea class="form-control font-monospace" name="starter_code" rows="4"
+                              placeholder="def add(a, b):&#10;    pass"></textarea>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">参考答案</label>
+                    <textarea class="form-control font-monospace" name="solution_code" rows="4"
+                              placeholder="def add(a, b):&#10;    return a + b"></textarea>
+                </div>
+
+                <div class="col-12">
+                    <label class="form-label">测试用例 *（JSON 数组）</label>
+                    <textarea class="form-control font-monospace" name="test_cases" rows="4" required
+                              placeholder='函数式：[{"input": "add(2, 3)", "expected": 5}, {"input": "add(-1, 1)", "expected": 0}]'>&#10;[{"input": "add(2, 3)", "expected": 5}, {"input": "add(-1, 1)", "expected": 0}]</textarea>
+                    <small class="text-muted">
+                        函数式：input 为调用表达式、expected 为返回值；
+                        或 stdin/stdout 式：[{"input": "2\n3", "expected_output": "5"}]。同一练习不要混用两种格式。
+                    </small>
+                </div>
+
+                <hr>
+                <div class="col-12">
+                    <label class="form-label">渐进提示（最多 3 条，留空跳过）</label>
+                </div>
+                {% for i in "123" %}
+                <div class="col-md-8">
+                    <input type="text" class="form-control" name="hint_{{ forloop.counter }}"
+                           placeholder="提示 {{ forloop.counter }}：如"先考虑如何定义函数"">
+                </div>
+                <div class="col-md-2">
+                    <input type="number" class="form-control" name="hint_penalty_{{ forloop.counter }}"
+                           value="{{ forloop.counter|add:1 }}" min="0">
+                </div>
+                <div class="col-md-2 align-self-center">
+                    <small class="text-muted">查看扣分</small>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="card-footer d-flex gap-2">
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-lg"></i> 创建练习
+            </button>
+            <a href="{% url 'training:exercise-list' %}" class="btn btn-outline-secondary">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

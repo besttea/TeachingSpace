@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+
+{% block title %}考试管理 - Python Learning{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-clipboard-check"></i> 考试管理</h2>
+        <a href="{% url 'examination:exam-list' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> 返回考试列表
+        </a>
+    </div>
+
+    <div class="card">
+        <div class="card-header bg-light">
+            <h5 class="mb-0">我创建的考试（{{ exams|length }}）</h5>
+        </div>
+        <div class="list-group list-group-flush">
+            {% for exam in exams %}
+            <div class="list-group-item d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>{{ exam.title }}</strong>
+                    <span class="badge {% if exam.is_published %}bg-success{% else %}bg-warning text-dark{% endif %} ms-2">
+                        {{ exam.is_published|yesno:"已发布,草稿" }}
+                    </span>
+                    <br>
+                    <small class="text-muted">
+                        {{ exam.duration_minutes }} 分钟 ｜ 通过线 {{ exam.passing_score }} 分 ｜
+                        {{ exam.question_count }} 题 ｜ {{ exam.attempt_count }} 人次参加
+                    </small>
+                </div>
+                <div class="btn-group">
+                    <a href="{% url 'examination:exam-detail' exam.id %}" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-eye"></i> 详情
+                    </a>
+                    <button class="btn btn-sm btn-{{ exam.is_published|yesno:'warning,success' }}"
+                            onclick="togglePublish(this, {{ exam.id }})">
+                        {{ exam.is_published|yesno:"下线,发布" }}
+                    </button>
+                </div>
+            </div>
+            {% empty %}
+            <div class="list-group-item text-muted">
+                还没有创建考试。使用管理命令 <code>generate_exam</code> 用 AI 生成（保存为草稿），
+                审核后在发布；或在后台手动创建。
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<script>
+    function togglePublish(btn, examId) {
+        const action = btn.textContent.trim() === '发布' ? 'publish' : 'unpublish';
+        fetch(`/examination/api/${examId}/publish/`, {
+            method: 'POST',
+            headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+            body: JSON.stringify({action: action})
+        }).then(r => r.json()).then(data => {
+            if (data.success) location.reload();
+            else alert(data.error || '操作失败');
+        });
+    }
+</script>
+{% endblock %}
