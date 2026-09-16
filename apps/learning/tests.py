@@ -7,7 +7,7 @@ from unittest import mock
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from apps.accounts.models import StudentProfile, User
+from apps.accounts.models import User
 from .models import Cell, Chapter, Course, Enrollment, Lesson, LessonProgress
 
 
@@ -229,7 +229,7 @@ class InstructorConsoleTests(TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_instructor_dashboard_lists_own_courses(self):
-        course = Course.objects.create(
+        Course.objects.create(
             title='我的课程', description='x', instructor=self.instructor)
         self.client.force_login(self.instructor)
         response = self.client.get(reverse('learning:instructor-dashboard'))

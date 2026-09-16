@@ -1,0 +1,16 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = ["venv", "migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]  # pycodestyle errors + pyflakes
+ignore = [
+    "E501",  # line length handled by formatters, not lint
+    "W293",  # trailing whitespace inside docstrings is cosmetic
+    "E402",  # lazy in-function imports are an intentional pattern here
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Django settings use `from .base import *` by convention
+"config/settings/*" = ["F403", "F405"]

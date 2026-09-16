@@ -168,7 +168,7 @@ class CellItem:
             "output": output,
             "error": self.error,
             "execution_count": self.execution_count,
-            "headings": [{"level": l, "text": t} for l, t in self.headings],
+            "headings": [{"level": level, "text": text} for level, text in self.headings],
             "flags": self.flags,
         }
 

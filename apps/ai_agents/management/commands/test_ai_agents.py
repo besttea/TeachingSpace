@@ -9,7 +9,6 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.ai_agents import ai_config
-from apps.ai_agents.base_agent import BaseAgent
 
 
 class Command(BaseCommand):

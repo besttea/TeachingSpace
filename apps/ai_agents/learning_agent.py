@@ -2,7 +2,6 @@ import logging
 
 from .base_agent import BaseAgent
 
-import re
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +37,7 @@ class LearningAgent(BaseAgent):
     """
     AI Agent for generating educational content (lessons, explanations, examples).
     """
-    
+
     def process_request(self, request_data):
         """
         Process a request to generate lesson content.
@@ -47,7 +46,7 @@ class LearningAgent(BaseAgent):
         topic = request_data.get('topic')
         difficulty = request_data.get('difficulty', 'beginner')
         include_code = request_data.get('include_code', True)
-        
+
         return self.generate_lesson_content(topic, difficulty, include_code)
 
     def generate_lesson_content(self, topic, difficulty, include_code=True,
@@ -124,13 +123,13 @@ Ground the lesson in this teaching material (cover its key points):
         cell_type = cell['type']
         if cell_type == 'code':
             instruction = (
-                f'Write ONLY the Python code for this cell (no fences, no '
-                f'explanation). It must be runnable Python for beginners.')
+                'Write ONLY the Python code for this cell (no fences, no '
+                'explanation). It must be runnable Python for beginners.')
         else:
             instruction = (
-                f'Write ONLY the markdown content for this cell (no fences, '
-                f'no HTML wrapper). Use headings, lists and inline code. '
-                f'LaTeX via $...$ is allowed.')
+                'Write ONLY the markdown content for this cell (no fences, '
+                'no HTML wrapper). Use headings, lists and inline code. '
+                'LaTeX via $...$ is allowed.')
 
         prompt = f'Lesson: {topic} | Cell type: {cell_type} | Cell title: {cell["title"]}\n\n{instruction}'
         if source_material:

@@ -6,7 +6,7 @@ from django.http import JsonResponse, Http404, FileResponse
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
 from django.db import transaction
-from django.db.models import Q, Count, Prefetch
+from django.db.models import Count, Prefetch
 from django.conf import settings
 from django.core.files.base import ContentFile
 import json

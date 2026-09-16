@@ -11,7 +11,7 @@ read one section's content. Tools are safe server-side functions in
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from anthropic import Anthropic
 from django.conf import settings

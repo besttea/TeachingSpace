@@ -66,7 +66,7 @@ class Question(models.Model):
         ('essay', '简答题'),
         ('true_false', '判断题'),
     )
-    
+
     QUESTION_DIFFICULTY = (
         ('easy', '简单'),
         ('medium', '中等'),
@@ -419,7 +419,7 @@ class ExamAnswer(models.Model):
             self.status = 'needs_review'
 
         # Code questions will be graded by code executor (handled in views)
-        
+
         self.save()
 
 

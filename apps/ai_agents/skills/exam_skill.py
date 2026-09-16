@@ -6,7 +6,6 @@ questions are sandbox-validated → returns the question list. Persistence
 (as drafts) stays with the caller.
 """
 
-import json
 import logging
 
 from ..harness import HarnessCore

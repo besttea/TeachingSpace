@@ -4,7 +4,6 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView, DetailView
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
-from django.db import transaction
 from django.contrib import messages
 import json
 

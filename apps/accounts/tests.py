@@ -115,7 +115,7 @@ class RateLimitDecoratorTests(SimpleTestCase):
 
         factory = RequestFactory()
         request = factory.post('/x')
-        request.user = mock_user = type('U', (), {'id': 99, 'is_authenticated': True})()
+        request.user = type('U', (), {'id': 99, 'is_authenticated': True})()
 
         for _ in range(3):
             self.assertEqual(view(request).status_code, 200)

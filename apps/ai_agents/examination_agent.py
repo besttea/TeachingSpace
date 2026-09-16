@@ -5,7 +5,7 @@ class ExaminationAgent(BaseAgent):
     """
     AI Agent for generating exam questions and evaluating student answers.
     """
-    
+
     def process_request(self, request_data):
         """
         Process a request to generate an exam.
@@ -14,7 +14,7 @@ class ExaminationAgent(BaseAgent):
         topic = request_data.get('topic')
         difficulty = request_data.get('difficulty', 'intermediate')
         question_count = request_data.get('question_count', 5)
-        
+
         return self.generate_exam_questions(topic, difficulty, question_count)
 
     def generate_exam_questions(self, topic, difficulty, count=5):
@@ -69,7 +69,7 @@ class ExaminationAgent(BaseAgent):
                "sample_answer": "A good answer would be..."
            }}
         """
-        
+
         prompt = f"""
         Create a {difficulty} level exam on {topic} with {count} questions.
         Include a mix of Multiple Choice, True/False, and at least one Coding question.
@@ -96,7 +96,6 @@ class ExaminationAgent(BaseAgent):
         Returns the UPDATED question dict (same structure). The caller
         re-validates code questions before applying.
         """
-        import json
 
         current = json.dumps(question, ensure_ascii=False, indent=2)
         prompt = f"""
@@ -128,7 +127,7 @@ class ExaminationAgent(BaseAgent):
         Evaluate a student's essay answer against a rubric.
         """
         system_prompt = "You are a strict but fair exam grader."
-        
+
         prompt = f"""
         Question: {question_text}
         
@@ -147,5 +146,5 @@ class ExaminationAgent(BaseAgent):
             "missed_points": ["point 3"]
         }}
         """
-        
+
         return self.generate_json(prompt, system_prompt, role='grader')

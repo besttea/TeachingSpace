@@ -2,7 +2,6 @@
 
 import logging
 import subprocess
-import tempfile
 from pathlib import Path
 
 from celery import shared_task

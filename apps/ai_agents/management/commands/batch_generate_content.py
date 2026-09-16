@@ -9,9 +9,6 @@ Usage:
 
 from django.core.management.base import BaseCommand, CommandError
 
-from apps.ai_agents.examination_agent import ExaminationAgent
-from apps.ai_agents.training_agent import TrainingAgent
-from apps.examination.models import Exam
 from apps.learning.models import Course
 
 

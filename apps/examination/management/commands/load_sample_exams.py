@@ -305,4 +305,4 @@ squares = [i**2 for i in range(1, 11)]
         self.stdout.write(self.style.SUCCESS('示例考试数据创建完成!'))
         self.stdout.write(f'考试总数: {Exam.objects.count()}')
         self.stdout.write(f'题目总数: {Question.objects.count()}')
-        self.stdout.write(f'教师账号: instructor / instructor123')
+        self.stdout.write('教师账号: instructor / instructor123')

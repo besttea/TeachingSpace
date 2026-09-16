@@ -1,7 +1,6 @@
 """Tests for AI generation tracking (history records + daily cost limit),
 multi-provider model selection (ai_config), and the course design agent."""
 
-from types import SimpleNamespace
 from unittest import mock
 
 from django.test import SimpleTestCase, TestCase, override_settings

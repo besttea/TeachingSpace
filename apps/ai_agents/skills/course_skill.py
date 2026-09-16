@@ -5,7 +5,6 @@ content). Grounds in ClassLib material when ``source_material`` is provided
 (callers obtain it via ``notebook_tools.find_related_sections``).
 """
 
-import json
 import logging
 
 from ..harness import HarnessCore

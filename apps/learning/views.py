@@ -1,13 +1,12 @@
-from django.shortcuts import render, get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib import messages
-from django.views.generic import ListView, DetailView, UpdateView
+from django.views.generic import ListView, DetailView
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.db import transaction
 from django.db.models import F, Q, Count, Prefetch
-from django.utils import timezone
 from django.conf import settings
 import json
 import logging
@@ -209,7 +208,7 @@ class LessonEditView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         cells = self.object.cells.all().order_by('order')
         context['cells'] = cells
         context['is_editing'] = True
-        
+
         # Serialize cells for JS
         cells_data = []
         for cell in cells:
@@ -220,7 +219,7 @@ class LessonEditView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 'data': cell.data
             })
         context['cells_json'] = json.dumps(cells_data, cls=DjangoJSONEncoder)
-        
+
         return context
 
 
@@ -371,7 +370,7 @@ class CourseOutlineView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
             chapters.append({'chapter': chapter, 'lessons': lessons})
         context['chapters'] = chapters
         context['total_empty'] = sum(
-            1 for c in chapters for l in c['lessons'] if l['cell_count'] == 0)
+            1 for c in chapters for lesson in c['lessons'] if lesson['cell_count'] == 0)
         return context
 
 
@@ -658,9 +657,9 @@ def create_cell(request):
             'image': {'url': '', 'caption': '', 'alt_text': ''},
             'video': {'url': '', 'source_type': 'youtube', 'caption': ''},
         }
-        
+
         cell_data = default_data.get(cell_type, {})
-        
+
         # Validate and process using handler
         handler = get_handler(cell_type)
         if handler:

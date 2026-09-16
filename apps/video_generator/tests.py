@@ -8,6 +8,8 @@ so media/ is never polluted by tests.
 import shutil
 import tempfile
 
+import pytest
+
 from django.test import SimpleTestCase, override_settings
 
 from .manim_engine import render_script
@@ -50,6 +52,7 @@ class ScriptValidatorTests(SimpleTestCase):
 
 @override_settings(MANIM_OUTPUT_DIR=_MEDIA_TMP)
 class ManimEngineTests(SimpleTestCase):
+    @pytest.mark.slow
     def test_real_render_produces_video(self):
         if shutil.which('manim') is None:
             self.skipTest('manim CLI not installed')

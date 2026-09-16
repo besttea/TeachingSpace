@@ -25,10 +25,10 @@ class Command(BaseCommand):
 
         # --- Chapter 1: Continue ---
         chapter1 = Chapter.objects.get(course=course, order=1)
-        
+
         # Lesson 2: Control Flow
         self._create_lesson_control_flow(chapter1, instructor)
-        
+
         # Lesson 3: Functions
         self._create_lesson_functions(chapter1, instructor)
 
@@ -136,7 +136,7 @@ class Command(BaseCommand):
             elif ctype == 'code':
                 cell_data['source'] = content
                 cell_data['language'] = 'python'
-            
+
             Cell.objects.create(
                 lesson=lesson,
                 cell_type=ctype,
