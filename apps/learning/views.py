@@ -3,7 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib import messages
 from django.views.generic import ListView, DetailView
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.db import transaction
 from django.db.models import F, Q, Count, Prefetch
@@ -15,6 +15,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from .models import Course, Chapter, Lesson, Cell, CellVersion, Enrollment, LessonProgress
 from .cell_handlers import get_handler
 from apps.core.rate_limit import rate_limit
+from apps.core.cache_utils import bump_content_version
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ def _error_response(e):
 
 
 class CourseListView(ListView):
-    """Display all published courses"""
+    """Display all published courses (content-version cached)"""
     model = Course
     template_name = 'learning/course_list.html'
     context_object_name = 'courses'
@@ -53,6 +54,21 @@ class CourseListView(ListView):
             queryset = queryset.filter(title__icontains=search)
 
         return queryset.order_by('-created_at')
+
+    def get(self, request, *args, **kwargs):
+        from apps.core.cache_utils import get_cached_page, page_key, set_cached_page
+
+        # search/filters bypass the cache
+        if request.GET:
+            return super().get(request, *args, **kwargs)
+        key = page_key('course_list', request.GET.get('page', 1))
+        cached = get_cached_page(key)
+        if cached is not None:
+            return HttpResponse(cached)
+        response = super().get(request, *args, **kwargs)
+        if response.status_code == 200:
+            set_cached_page(key, response.rendered_content)
+        return response
 
 
 class CourseDetailView(DetailView):
@@ -360,6 +376,7 @@ def instructor_course_create(request):
                              f'已创建空课程，可手动添加章节')
                 return redirect('learning:instructor-course-manage', slug=course.slug)
 
+        bump_content_version()
         messages.success(request, f'课程《{course.title}》已创建（草稿状态，学生不可见）')
         return redirect('learning:instructor-course-manage', slug=course.slug)
     except Exception as e:
@@ -517,6 +534,7 @@ def instructor_chapter_create(request, slug):
             course=course, title=title,
             description=(request.POST.get('description') or '').strip(),
             order=order)
+        bump_content_version()
         messages.success(request, f'章节《{title}》已添加')
     except Exception as e:
         return _error_response(e)
@@ -543,6 +561,7 @@ def instructor_lesson_create(request, slug):
             chapter=chapter, title=title,
             description=(request.POST.get('description') or '').strip(),
             status='draft', order=order, created_by=request.user)
+        bump_content_version()
         messages.success(request, f'课程单元《{title}》已创建（草稿），开始编辑内容')
         return redirect('learning:lesson-edit', pk=lesson.pk)
     except Exception as e:
@@ -560,6 +579,7 @@ def instructor_lesson_publish(request, pk):
         action = (request.POST.get('action') or 'publish').strip()
         lesson.status = 'published' if action == 'publish' else 'draft'
         lesson.save()
+        bump_content_version()
         return JsonResponse({
             'success': True,
             'status': lesson.status,
@@ -580,6 +600,7 @@ def instructor_course_publish(request, slug):
         action = (request.POST.get('action') or 'publish').strip()
         course.is_published = (action == 'publish')
         course.save()
+        bump_content_version()
         return JsonResponse({
             'success': True,
             'is_published': course.is_published,

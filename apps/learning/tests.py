@@ -568,3 +568,43 @@ class LessonGenerateStatusTests(TestCase):
         status = status_resp.json()['status']
         self.assertEqual(status['status'], 'done')
         self.assertGreaterEqual(status['cell_count'], 1)
+
+
+class CourseListCacheTests(TestCase):
+    """3.4: content-versioned course list caching with invalidation."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.instructor = User.objects.create_user(
+            username='cache_teacher', email='cat@example.com',
+            password='StrongPass123!', user_type='instructor')
+
+    def _course(self, title):
+        return Course.objects.create(
+            title=title, description='x', instructor=self.instructor,
+            is_published=True)
+
+    def test_cache_serves_and_invalidates(self):
+        from apps.core.cache_utils import bump_content_version
+        from django.core.cache import cache
+
+        self._course('缓存课程甲')
+        first = self.client.get(reverse('learning:course-list'))
+        self.assertEqual(first.status_code, 200)
+        # cached now — adding a course WITHOUT bump keeps serving the old page
+        self._course('缓存课程乙')
+        second = self.client.get(reverse('learning:course-list'))
+        self.assertNotContains(second, '缓存课程乙')
+
+        # bump → fresh render includes the new course
+        bump_content_version()
+        third = self.client.get(reverse('learning:course-list'))
+        self.assertContains(third, '缓存课程乙')
+        cache.clear()
+
+    def test_search_bypasses_cache(self):
+        self._course('缓存课程甲')
+        self.client.get(reverse('learning:course-list'))  # populate cache
+        response = self.client.get(reverse('learning:course-list') + '?search=甲')
+        self.assertContains(response, '缓存课程甲')

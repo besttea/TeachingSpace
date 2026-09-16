@@ -63,6 +63,9 @@ def generate_lesson_cells_task(lesson_id: int):
                         lesson=lesson, cell_type='text', order=order,
                         data={'markdown': content})
 
+        from apps.core.cache_utils import bump_content_version
+        bump_content_version()
+
         cache.set(_status_key(lesson_id), {
             'status': 'done',
             'cell_count': len(cells),
