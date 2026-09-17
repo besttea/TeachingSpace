@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.4.0] - 2026-09-17
 
+### Fixed (notebook polish — Jupyter parity)
+- **Local kernel import failures**: the dev venv now carries the scientific stack (numpy/matplotlib/pandas, versions synced with docker/kernel/Dockerfile) — ClassLib 科学计算 notebooks run locally; the matplotlib rich-output kernel test now passes for real
+- **Editor JS never initialized**: an inline script comment contained the literal `</script>` sequence, which terminates the script block in every browser — the entire notebookEditor Alpine component (edit/save/sort) was dead. Reworded the comment; a template-wide scan found no other occurrences
+- Cell type conversion (Jupyter-style) via `update_cell` with `cell_type`, data reset to the new type's defaults, and the version snapshot recording the OLD type so conversions stay restorable
+
+### Added (notebook polish — Jupyter parity)
+- CodeMirror 6 in the lesson editor (Python syntax highlighting via an Alpine x-codemirror directive; hidden x-model textarea stays the save-safe source of truth)
+- Jupyter-style keyboard shortcuts: editor Ctrl+Enter saves the cell, Shift+Enter runs it; student view Ctrl+Enter runs the selected code cell (click to select, left-border highlight)
+- Instructor-run code cells in the editor with rich inline outputs (stream/images/html-sanitized/error tracebacks) and live In[n] execution labels
+
 ### Added (v3 sprint 1 — knowledge-point closed loop)
 - **知识点覆盖矩阵** (plan v3 1.1): course manage page KP rows show bound-exercise/question counts, submission count and pass rate; zero-coverage KPs get a red「未出题」badge linking to the exercise create form with the KP preselected
 - **考试按知识点勾选出题** (1.2): the AI-generate dialog is now a modal with KP checkboxes (select all/clear), count and difficulty; server validates KP ownership and scopes generation to the selection

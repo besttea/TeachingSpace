@@ -117,6 +117,45 @@
         min-height: 100px;
     }
 
+    /* CodeMirror container (Jupyter-style code editing) */
+    .cm-container .cm-editor {
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        font-size: 0.9rem;
+    }
+    .cm-container .cm-editor.cm-focused {
+        outline: 2px solid #0d6efd33;
+        border-color: #86b7fe;
+    }
+
+    /* Jupyter-style prompts and outputs */
+    .prompt-label {
+        color: #569cd6;
+        font-family: 'Courier New', monospace;
+        margin-right: 0.8rem;
+        user-select: none;
+    }
+    .cell-type-switch select {
+        max-width: 260px;
+        display: inline-block;
+    }
+    .code-output {
+        margin: 0 0.5rem 0.5rem 0.5rem;
+        padding: 0.6rem 1rem;
+        background: #f8f9fa;
+        border-left: 3px solid #198754;
+        border-radius: 0 4px 4px 0;
+        font-family: 'Courier New', monospace;
+        font-size: 0.85rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+    .code-output pre { margin: 0; padding: 0; background: transparent; }
+    .code-output .error-output {
+        color: #dc3545;
+        border-left-color: #dc3545;
+    }
+
     /* Code cell display styles */
     .cell-content pre {
         margin: 0;
@@ -262,6 +301,11 @@
                         <span class="text-muted ms-2">Order: <span class="cell-order">{{ cell.order }}</span></span>
                     </div>
                     <div class="cell-actions">
+                        {% if cell.cell_type == 'code' %}
+                        <button @click="runCell({{ cell.id }})" title="运行（真实内核）" class="text-success">
+                            <i class="bi bi-play-fill"></i>
+                        </button>
+                        {% endif %}
                         <button @click="editCell({{ cell.id }})" title="Edit">
                             <i class="bi bi-pencil"></i>
                         </button>
@@ -280,7 +324,7 @@
                     <div class="markdown-content" x-html="renderMarkdown(`{{ cell.data.markdown|escapejs_tick }}`)"></div>
 
                     {% elif cell.cell_type == 'code' %}
-                    <pre style="margin: 0; padding: 1rem; background: #282c34; border-radius: 4px; overflow-x: auto;"><code style="display: block; white-space: pre-wrap; word-break: break-word; font-family: 'Courier New', monospace; color: #abb2bf; line-height: 1.5;">{{ cell.data.source }}</code></pre>
+                    <pre class="code-source-prompt" style="margin: 0; padding: 0.6rem 1rem; background: #282c34; border-radius: 4px; overflow-x: auto;"><span class="prompt-label" x-text="execLabel({{ cell.id }})"></span><code style="display: block; white-space: pre-wrap; word-break: break-word; font-family: 'Courier New', monospace; color: #abb2bf; line-height: 1.5;">{{ cell.data.source }}</code></pre>
 
                     {% elif cell.cell_type == 'image' %}
                     {% if cell.data.url %}
@@ -307,6 +351,15 @@
 
                 <!-- Cell Editor (Edit Mode) -->
                 <div class="cell-editor" x-show="editingCell === {{ cell.id }}" style="display: none;">
+                    <div class="form-group cell-type-switch">
+                        <label>单元格类型（保存后转换，类型数据重置为默认）：</label>
+                        <select class="form-control form-control-sm" x-model="cellType">
+                            <option value="text">文本（Markdown）</option>
+                            <option value="code">代码</option>
+                            <option value="image">图片</option>
+                            <option value="video">视频</option>
+                        </select>
+                    </div>
                     {% if cell.cell_type == 'text' %}
                     <div class="form-group">
                         <label>Markdown Content:</label>
@@ -322,11 +375,9 @@
 
                     {% elif cell.cell_type == 'code' %}
                     <div class="form-group">
-                        <label>Python Code:</label>
-                        <textarea
-                            class="form-control"
-                            x-model="cellData.source"
-                            placeholder="# Write Python code here..."></textarea>
+                        <label>Python Code: <small class="text-muted">（Ctrl+Enter 保存 ｜ Shift+Enter 运行）</small></label>
+                        <textarea class="form-control d-none" x-model="cellData.source"></textarea>
+                        <div class="cm-container" x-codemirror="cellData.source"></div>
                     </div>
 
                     {% elif cell.cell_type == 'image' %}
@@ -399,12 +450,54 @@
 
 {% block extra_js %}
 {{ cells_json|json_script:"cells-data" }}
+<script type="module">
+// CodeMirror 6 (Jupyter-style syntax highlighting for code cells)
+import {EditorView, basicSetup} from "https://cdn.jsdelivr.net/npm/codemirror@6.0.1/+esm";
+import {python} from "https://cdn.jsdelivr.net/npm/@codemirror/lang-python@6.1.6/+esm";
+window.CodeMirror6 = {EditorView, basicSetup, python};
+</script>
 <script>
+document.addEventListener('alpine:init', () => {
+    // x-codemirror="<string expression>" renders a CodeMirror editor that
+    // syncs both ways with the reactive property (hidden x-model textarea
+    // remains the save-safe source of truth).
+    Alpine.directive('codemirror', (el, { expression }, { evaluate, evaluateLater, effect }) => {
+        const get = evaluateLater(expression);
+        let view = null;
+        if (window.CodeMirror6) {
+            const {EditorView, basicSetup, python} = window.CodeMirror6;
+            view = new EditorView({
+                doc: evaluate(expression) || '',
+                extensions: [basicSetup, python(),
+                    EditorView.updateListener.of(u => {
+                        if (u.docChanged) {
+                            const data = Alpine.$data(el);
+                            if (data && data.cellData) {
+                                data.cellData.source = u.state.doc.toString();
+                            }
+                        }
+                    })],
+            });
+            el.appendChild(view.dom);
+        }
+        effect(() => {
+            get(value => {
+                if (view && view.state.doc.toString() !== (value || '')) {
+                    view.dispatch({changes: {
+                        from: 0, to: view.state.doc.length, insert: value || ''}});
+                }
+            });
+        });
+    });
+});
+
 function notebookEditor() {
     return {
         editingCell: null,
         cellData: {},
-        // json_script escapes </script> and friends; parsed safely from a
+        cellType: '',
+        execCounts: {},   // cellId -> last kernel execution count (In[n])
+        // json_script escapes script-closing tags; parsed safely from a
         // dedicated script tag instead of inline JSON with |safe.
         cellsData: JSON.parse(document.getElementById('cells-data').textContent),
         sortable: null,
@@ -420,6 +513,26 @@ function notebookEditor() {
                     this.updateCellOrders();
                 }
             });
+
+            // Jupyter-style keyboard shortcuts
+            document.addEventListener('keydown', (event) => {
+                if (!this.editingCell) return;
+                // Ctrl+Enter: save the cell being edited
+                if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                    event.preventDefault();
+                    this.saveCell(this.editingCell);
+                }
+                // Shift+Enter: run the code cell (saves the source first)
+                if (event.shiftKey && event.key === 'Enter' && this.cellType === 'code') {
+                    event.preventDefault();
+                    this.runCell(this.editingCell, {saveFirst: true});
+                }
+            });
+        },
+
+        execLabel(cellId) {
+            const n = this.execCounts[cellId];
+            return n ? 'In [' + n + ']:' : '';
         },
 
         renderMarkdown(markdown) {
@@ -505,6 +618,7 @@ function notebookEditor() {
             if (cell) {
                 // Clone the cell data to avoid mutating the original
                 this.cellData = JSON.parse(JSON.stringify(cell.data));
+                this.cellType = cell.cell_type;
                 this.editingCell = cellId;
             } else {
                 console.error('Cell not found:', cellId);
@@ -522,6 +636,7 @@ function notebookEditor() {
                     },
                     body: JSON.stringify({
                         data: this.cellData,
+                        cell_type: this.cellType,  // type conversion (Jupyter-style)
                         change_description: 'Cell updated via editor'
                     })
                 });
@@ -537,6 +652,83 @@ function notebookEditor() {
             } catch (error) {
                 console.error('Error:', error);
                 alert('Failed to save cell. Please try again.');
+            }
+        },
+
+        // Run a code cell in the lesson's real Jupyter kernel (instructor
+        // preview), Jupyter-style: outputs render below the cell.
+        async runCell(cellId, options = {}) {
+            const cell = this.cellsData.find(c => c.id === cellId);
+            let source = (cell && cell.data.source) || '';
+            if (options.saveFirst && this.editingCell === cellId) {
+                source = this.cellData.source || source;
+            }
+            if (!source.trim()) { alert('单元格没有代码'); return; }
+            try {
+                const response = await fetch(`/learning/api/lessons/{{ lesson.id }}/kernel/execute/`, {
+                    method: 'POST',
+                    headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+                    body: JSON.stringify({code: source})
+                });
+                const data = await response.json();
+                if (data.success) {
+                    this.renderOutput(cellId, data);
+                } else {
+                    alert('执行失败: ' + (data.error || '未知错误'));
+                }
+            } catch (e) {
+                alert('执行失败，请重试。');
+            }
+        },
+
+        // Render rich Jupyter outputs (stream / result / image / error) into
+        // the cell. All kernel text is inserted via textContent (no XSS);
+        // text/html payloads go through DOMPurify before innerHTML.
+        renderOutput(cellId, data) {
+            if (data.execution_count) this.execCounts[cellId] = data.execution_count;
+            const cellElement = document.querySelector(`[data-cell-id="${cellId}"]`);
+            if (!cellElement) return;
+            let outputElement = cellElement.querySelector('.code-output');
+            if (!outputElement) {
+                outputElement = document.createElement('div');
+                outputElement.className = 'code-output success';
+                // below both view and edit modes (visible whichever is open)
+                cellElement.appendChild(outputElement);
+            }
+            outputElement.innerHTML = '';
+            const stripAnsi = (s) => (s || '').replace(/\x1b\[[0-9;]*m/g, '');
+            for (const output of (data.outputs || [])) {
+                if (output.type === 'stream') {
+                    const pre = document.createElement('pre');
+                    pre.textContent = output.text;
+                    outputElement.appendChild(pre);
+                } else if (output.type === 'execute_result' || output.type === 'display_data') {
+                    const d = output.data || {};
+                    if (d['image/png']) {
+                        const img = document.createElement('img');
+                        img.src = 'data:image/png;base64,' + d['image/png'];
+                        img.style.maxWidth = '100%';
+                        outputElement.appendChild(img);
+                    }
+                    if (d['text/html']) {
+                        const div = document.createElement('div');
+                        div.innerHTML = typeof DOMPurify !== 'undefined'
+                            ? DOMPurify.sanitize(d['text/html'])
+                            : stripAnsi(d['text/html']).replace(/</g, '&lt;');
+                        outputElement.appendChild(div);
+                    } else if (d['text/plain']) {
+                        const pre = document.createElement('pre');
+                        pre.textContent = stripAnsi(d['text/plain']);
+                        outputElement.appendChild(pre);
+                    }
+                } else if (output.type === 'error') {
+                    const pre = document.createElement('pre');
+                    pre.className = 'error-output';
+                    pre.textContent = [output.ename, output.evalue,
+                                       (output.traceback || []).join('\n')]
+                        .filter(Boolean).join('\n');
+                    outputElement.appendChild(pre);
+                }
             }
         },
 

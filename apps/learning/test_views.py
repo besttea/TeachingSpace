@@ -314,3 +314,55 @@ class KernelEndpointTests(TestCase):
             reverse('learning:kernel-restart', args=[self.lesson.id]))
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['success'])
+
+
+class CellTypeConversionTests(TestCase):
+    """Jupyter-style cell type conversion via update_cell (notebook polish)."""
+
+    def setUp(self):
+        self.instructor = _make_user('teacher', 'instructor')
+        self.student = _make_user('student')
+        self.course, self.lesson = _make_course_lesson(self.instructor)
+        self.cell = Cell.objects.create(
+            lesson=self.lesson, cell_type='code', order=1,
+            data={'source': 'print(1)', 'output': '', 'execution_count': 0})
+        self.client.force_login(self.instructor)
+
+    def _update(self, payload):
+        return self.client.post(
+            reverse('learning:cell-update', args=[self.cell.id]),
+            data=json.dumps(payload), content_type='application/json')
+
+    def test_convert_code_to_text_resets_data(self):
+        response = self._update({'cell_type': 'text',
+                                 'change_description': '转换'})
+        self.assertEqual(response.status_code, 200)
+        self.cell.refresh_from_db()
+        self.assertEqual(self.cell.cell_type, 'text')
+        self.assertEqual(set(self.cell.data), {'markdown', 'rendered_html'})
+
+    def test_convert_text_to_code_resets_data(self):
+        self.cell.cell_type = 'text'
+        self.cell.data = {'markdown': '旧内容'}
+        self.cell.save()
+        response = self._update({'cell_type': 'code'})
+        self.assertEqual(response.status_code, 200)
+        self.cell.refresh_from_db()
+        self.assertEqual(self.cell.cell_type, 'code')
+        self.assertIn('source', self.cell.data)
+
+    def test_invalid_type_rejected(self):
+        response = self._update({'cell_type': 'spreadsheet'})
+        self.assertEqual(response.status_code, 400)
+        self.cell.refresh_from_db()
+        self.assertEqual(self.cell.cell_type, 'code')
+
+    def test_snapshot_records_old_type(self):
+        self._update({'cell_type': 'text'})
+        version = self.cell.versions.latest('created_at')
+        self.assertEqual(version.snapshot['cell_type'], 'code')
+
+    def test_student_forbidden(self):
+        self.client.force_login(self.student)
+        response = self._update({'cell_type': 'text'})
+        self.assertEqual(response.status_code, 403)

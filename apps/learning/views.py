@@ -755,6 +755,23 @@ def update_cell(request, pk):
         data = json.loads(request.body)
         new_data = data.get('data', {})
 
+        # Cell type conversion (Jupyter-style: 转换单元格类型). On change the
+        # type-specific data is replaced with the new type's defaults.
+        old_type = cell.cell_type
+        new_type = data.get('cell_type')
+        if new_type and new_type != old_type:
+            if new_type not in dict(Cell.CELL_TYPES):
+                return JsonResponse({'error': f'Invalid cell type: {new_type}'},
+                                    status=400)
+            cell.cell_type = new_type
+            defaults = {
+                'text': {'markdown': '', 'rendered_html': ''},
+                'code': {'source': '', 'output': '', 'execution_count': 0},
+                'image': {'url': '', 'caption': '', 'alt_text': ''},
+                'video': {'url': '', 'source_type': 'youtube', 'caption': ''},
+            }
+            new_data = defaults[new_type]
+
         # Validate and process using handler
         handler = get_handler(cell.cell_type)
         if handler:
@@ -763,11 +780,12 @@ def update_cell(request, pk):
             handler.validate(new_data)
             new_data = handler.process(new_data)
 
-        # Save version before updating
+        # Save version before updating (snapshot carries the OLD type so
+        # type conversions remain restorable)
         CellVersion.objects.create(
             cell=cell,
             snapshot={
-                'cell_type': cell.cell_type,
+                'cell_type': old_type,
                 'data': cell.data,
                 'order': cell.order
             },

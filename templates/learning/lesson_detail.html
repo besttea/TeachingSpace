@@ -11,6 +11,21 @@
         margin: 0 auto;
     }
 
+    /* Jupyter-style cell selection (click to select, Ctrl+Enter to run) */
+    .code-cell {
+        cursor: pointer;
+        border-left: 3px solid transparent;
+        padding-left: 0.75rem;
+        transition: border-color .15s;
+    }
+    .code-cell:hover {
+        border-left-color: #e0e0e0;
+    }
+    .code-cell.cell-selected {
+        border-left-color: #0d6efd;
+        background: #f8faff;
+    }
+
     .cell {
         border: 1px solid #e0e0e0;
         border-radius: 8px;
@@ -240,19 +255,15 @@
 
             {% elif cell.cell_type == 'code' %}
             <!-- Code Cell -->
-            <div class="code-cell">
+            <div class="code-cell"
+                 @click="selectCell({{ cell.id }})"
+                 :class="{'cell-selected': isSelected({{ cell.id }})}">
                 <div class="code-header">
-                    <span class="execution-count">
-                        {% if cell.data.execution_count %}
-                        In [{{ cell.data.execution_count }}]:
-                        {% else %}
-                        In [ ]:
-                        {% endif %}
-                    </span>
+                    <span class="execution-count" x-text="execLabel({{ cell.id }}) || 'In [ ]:'"></span>
                     {% if enrollment %}
                     <button
                         class="btn-execute"
-                        @click="executeCell({{ cell.id }})"
+                        @click.stop="executeCell({{ cell.id }})"
                         :disabled="executing === {{ cell.id }}"
                         :class="{'executing': executing === {{ cell.id }}}">
                         <template x-if="executing === {{ cell.id }}">
@@ -261,7 +272,7 @@
                         <template x-if="executing !== {{ cell.id }}">
                             <i class="bi bi-play-fill"></i>
                         </template>
-                        Run
+                        Run <small class="text-muted">(Ctrl+Enter)</small>
                     </button>
                     {% endif %}
                 </div>
@@ -372,6 +383,8 @@
 function notebookViewer() {
     return {
         executing: null,
+        selectedCell: null,   // Jupyter-style selection (Ctrl+Enter runs it)
+        execCounts: {},       // cellId -> last kernel execution count (In[n])
 
         init() {
             // Render KaTeX math
@@ -388,6 +401,28 @@ function notebookViewer() {
             {% if enrollment %}
             this.startHeartbeat();
             {% endif %}
+
+            // Jupyter-style keyboard: Ctrl+Enter runs the selected code cell
+            document.addEventListener('keydown', (event) => {
+                if ((event.ctrlKey || event.metaKey) && event.key === 'Enter'
+                        && this.selectedCell) {
+                    event.preventDefault();
+                    this.executeCell(this.selectedCell);
+                }
+            });
+        },
+
+        selectCell(cellId) {
+            this.selectedCell = (this.selectedCell === cellId) ? null : cellId;
+        },
+
+        isSelected(cellId) {
+            return this.selectedCell === cellId;
+        },
+
+        execLabel(cellId) {
+            const n = this.execCounts[cellId];
+            return n ? 'In [' + n + ']:' : '';
         },
 
         renderMarkdown(markdown) {
@@ -446,6 +481,7 @@ function notebookViewer() {
         // the cell. All kernel text is inserted via textContent (no XSS);
         // text/html payloads go through DOMPurify before innerHTML.
         renderOutput(cellId, data) {
+            if (data.execution_count) this.execCounts[cellId] = data.execution_count;
             const cellElement = document.querySelector(`[data-cell-id="${cellId}"]`);
             if (!cellElement) return;
 

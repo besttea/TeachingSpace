@@ -307,7 +307,7 @@ VideoAgent.generate_video_script()  # AI 生成脚本（围栏正则提取,不�
 
 学习课堂的代码单元格运行在**真实 ipykernel 会话**上（`apps/learning/jupyter_kernel.py`）：
 
-- 每个 (user, lesson) 一个长生命周期内核：**变量跨单元格持久**、富输出（stream/execute_result/display_data/error）、In[n] 执行计数、matplotlib 内联图；
+- 每个 (user, lesson) 一个长生命周期内核：**变量跨单元格持久**、富输出（stream/execute_result/display_data/error）、In[n] 执行计数、matplotlib 内联图；**科学计算栈**（numpy/matplotlib/pandas）随 requirements.txt 与 `docker/kernel/Dockerfile` 同版本维护（本地 dev 内核与生产镜像能力一致，ClassLib 第七课等科学计算 notebook 可直接运行）；
 - 生命周期：空闲 `JUPYTER_KERNEL_IDLE_TIMEOUT`（默认 15 分钟）回收、`JUPYTER_MAX_KERNELS`（默认 20）LRU 淘汰、`restart` 端点清空变量；
 - 超时语义：`JUPYTER_EXECUTE_TIMEOUT`（默认 15 秒）→ interrupt 保留会话；**Windows 下 ipykernel 中断不可靠**，3 秒未恢复自动重启内核并告知（跨平台兜底已在实现中）；
 - 双后端：`local`（ipykernel 子进程，**仅限开发**——完整 Python 权限）与 `docker`（`teaching-space-kernel` 镜像：五个 ZMQ 端口仅发布到 127.0.0.1、内存/CPU/PID 受限、cap-drop ALL、非 root）；

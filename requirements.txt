@@ -32,6 +32,13 @@ ffmpeg-python==0.2.0
 jupyter_client==8.6.3
 ipykernel==6.29.5
 
+# Learning-class scientific stack — mirrors docker/kernel/Dockerfile so the
+# local (dev) kernel can run the ClassLib notebooks (第七课科学计算等).
+# Keep versions in sync with the kernel image.
+numpy==2.2.0
+matplotlib==3.10.0
+pandas==2.2.3
+
 # Task Queue (eager inline by default in DEBUG — see CELERY_ALWAYS_EAGER)
 celery==5.6.3
 redis==8.1.0
