@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.4.0] - 2026-09-17
 
+### Added (v3 sprint 1 — knowledge-point closed loop)
+- **知识点覆盖矩阵** (plan v3 1.1): course manage page KP rows show bound-exercise/question counts, submission count and pass rate; zero-coverage KPs get a red「未出题」badge linking to the exercise create form with the KP preselected
+- **考试按知识点勾选出题** (1.2): the AI-generate dialog is now a modal with KP checkboxes (select all/clear), count and difficulty; server validates KP ownership and scopes generation to the selection
+- **学生知识点掌握度** (2.1): `apps/training/mastery.py` maps latest exercise submissions + submitted exam answers onto KPs (未开始/学习中/已掌握, boundary 70%); My Progress page renders per-course mastery bars with counts
+- **薄弱知识点一键练** (2.2): mastery view「去练习」links to the exercise list filtered by `?knowledge_point=`, with a banner and a "请向教师反馈" empty state
+- OPTIMIZATION_PLAN upgraded to v3 (usability/functionality-first roadmap, debt table T33-T48); docs refresh (README rewrite, version headers, archived NOTEBOOK_INTERFACE)
+
+
+
 ### Added
 - **知识点数据库 (KnowledgePoint)**: course-scoped knowledge-point model (learning 0002) — the indexed backbone the user asked for. Instructor-triggered AI extraction (per-chapter worker calls) with the grounding chain *lesson text cells → ClassLib related sections → autonomous model knowledge* (no material never means no output), near-duplicate merge, async task + 3s polling, and manual CRUD in the course manage page's new 知识点库 card
 - **Knowledge-point-driven generation** (the mechanical fix for duplicate questions): ExamSkill distributes questions across knowledge points distinct-first (one question, one KP — repeats impossible by construction) plus per-question "target knowledge point" prompt injection; `generate_exercises` iterates course KPs one exercise each; exercise AI-draft accepts a knowledge_point_id

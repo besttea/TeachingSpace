@@ -539,6 +539,7 @@ def exam_ai_generate(request, pk):
         count = int(data.get('count', 10))
         difficulty = data.get('difficulty', 'intermediate')
         topic = (data.get('topic') or '').strip()
+        kp_ids = data.get('knowledge_point_ids')
     except (TypeError, ValueError):
         return JsonResponse({'success': False, 'error': '参数无效'}, status=400)
 
@@ -555,12 +556,21 @@ def exam_ai_generate(request, pk):
     # with knowledge points, every question targets one KP (distinct-first —
     # no duplicate questions by construction); otherwise autonomous topic
     # generation (user feedback 2026-09-17: ClassLib/课程素材接地与自主发挥并重).
+    # Plan v3 1.2: the instructor may scope generation to a subset of KPs.
     knowledge_points = None
     if exam.course_id:
+        course_kps = exam.course.knowledge_points.all()
+        if kp_ids is not None:
+            course_kps = course_kps.filter(pk__in=kp_ids)
         knowledge_points = [
             {'id': kp.id, 'title': kp.title, 'description': kp.description}
-            for kp in exam.course.knowledge_points.all()
+            for kp in course_kps
         ]
+        if kp_ids is not None and not knowledge_points:
+            return JsonResponse({
+                'success': False,
+                'error': '所选知识点均不存在或不属于关联课程'
+            }, status=400)
 
     from celery import current_app
     from .tasks import generate_exam_questions_task
@@ -580,6 +590,23 @@ def exam_ai_generate(request, pk):
         'success': True, 'queued': True,
         'message': '生成任务已提交，前端将轮询进度',
     })
+
+
+@login_required
+@require_http_methods(["GET"])
+def exam_ai_knowledge_points(request, pk):
+    """Knowledge points available for KP-scoped generation (plan v3 1.2)."""
+    exam = get_object_or_404(Exam, pk=pk)
+    if not (request.user == exam.created_by or request.user.is_staff):
+        return JsonResponse({'success': False, 'error': 'Permission denied'}, status=403)
+    kps = []
+    if exam.course_id:
+        kps = [
+            {'id': kp.id, 'title': kp.title,
+             'description': kp.description}
+            for kp in exam.course.knowledge_points.all()
+        ]
+    return JsonResponse({'success': True, 'knowledge_points': kps})
 
 
 @login_required

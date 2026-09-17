@@ -103,8 +103,14 @@ class CourseDetailView(DetailView):
             ).exists()
 
             if context['can_edit']:
-                context['knowledge_points'] = (
-                    self.object.knowledge_points.select_related('chapter'))
+                kps = list(self.object.knowledge_points.select_related('chapter'))
+                context['knowledge_points'] = kps
+                coverage = _kp_coverage_matrix(kps)
+                context['kp_coverage'] = coverage
+                context['kp_rows'] = [
+                    {'kp': kp, 'coverage': coverage.get(kp.id, {})}
+                    for kp in kps
+                ]
 
             enrollment = None
             try:
@@ -1110,6 +1116,50 @@ def mark_lesson_complete(request, pk):
 
 def _can_manage_course(user, course):
     return user == course.instructor or user.is_staff
+
+
+def _kp_coverage_matrix(kps) -> dict:
+    """Per-KP coverage stats for the instructor dashboard (plan v3 1.1):
+    bound exercises / questions, submission count and exercise pass rate.
+
+    All aggregates run as grouped queries (O(1) per metric), never per-KP.
+    """
+    if not kps:
+        return {}
+    kp_ids = [kp.id for kp in kps]
+
+    from apps.training.models import Exercise, Submission
+    from apps.examination.models import Question
+
+    exercise_counts = dict(
+        Exercise.objects.filter(knowledge_points__in=kp_ids)
+        .values('knowledge_points')
+        .annotate(c=Count('id'))
+        .values_list('knowledge_points', 'c'))
+    question_counts = dict(
+        Question.objects.filter(knowledge_points__in=kp_ids)
+        .values('knowledge_points')
+        .annotate(c=Count('id'))
+        .values_list('knowledge_points', 'c'))
+    submission_rows = (
+        Submission.objects.filter(exercise__knowledge_points__in=kp_ids)
+        .values('exercise__knowledge_points')
+        .annotate(total=Count('id'),
+                  passed=Count('id', filter=Q(status='passed'))))
+
+    coverage = {}
+    for kp in kps:
+        row = next((r for r in submission_rows
+                    if r['exercise__knowledge_points'] == kp.id), None)
+        total = row['total'] if row else 0
+        passed = row['passed'] if row else 0
+        coverage[kp.id] = {
+            'exercises': exercise_counts.get(kp.id, 0),
+            'questions': question_counts.get(kp.id, 0),
+            'submissions': total,
+            'pass_rate': round(passed * 100 / total) if total else None,
+        }
+    return coverage
 
 
 def _kp_response_ok(data, status=200):

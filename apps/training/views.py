@@ -9,7 +9,7 @@ import json
 
 from .models import Exercise, Hint, Submission, HintUsage
 from apps.accounts.models import StudentProfile
-from apps.learning.models import Course
+from apps.learning.models import Course, Enrollment
 from apps.core.rate_limit import rate_limit
 
 
@@ -44,6 +44,11 @@ class ExerciseListView(LoginRequiredMixin, ListView):
         if course_id:
             queryset = queryset.filter(course_id=course_id)
 
+        # Filter by knowledge point (plan v3 2.2: weak-point practice)
+        kp_id = self.request.GET.get('knowledge_point')
+        if kp_id:
+            queryset = queryset.filter(knowledge_points__id=kp_id).distinct()
+
         # Search by title
         search = self.request.GET.get('search')
         if search:
@@ -76,6 +81,14 @@ class ExerciseListView(LoginRequiredMixin, ListView):
             ).values_list('exercise_id', flat=True)
             context['completed_exercises'] = list(completed_exercises)
 
+        # Knowledge-point filter context (weak-point practice entry)
+        kp_id = self.request.GET.get('knowledge_point')
+        if kp_id:
+            from apps.learning.models import KnowledgePoint
+            kp = KnowledgePoint.objects.filter(pk=kp_id).select_related(
+                'course').first()
+            context['filter_kp'] = kp
+            context['filter_kp_course'] = kp.course if kp else None
         return context
 
 
@@ -457,7 +470,9 @@ def exercise_create(request):
     context = {
         'courses': Course.objects.filter(is_published=True),
         'knowledge_points': _allowed_kps(request.user),
-        'selected_kp_ids': [],
+        # ?kp=<id> preselect (knowledge-point coverage matrix link)
+        'selected_kp_ids': [int(request.GET['kp'])]
+        if request.GET.get('kp', '').isdigit() else [],
     }
     return render(request, 'training/exercise_form.html', context)
 
@@ -605,7 +620,7 @@ def submission_detail(request, pk):
 
 @login_required
 def my_progress(request):
-    """Student progress dashboard for exercises"""
+    """Student progress dashboard for exercises + knowledge-point mastery."""
     # Get all submissions
     submissions = Submission.objects.filter(student=request.user)
 
@@ -620,12 +635,27 @@ def my_progress(request):
     # Get recent submissions
     recent_submissions = submissions.select_related('exercise').order_by('-submitted_at')[:10]
 
+    # Knowledge-point mastery per enrolled course (plan v3 2.1)
+    from .mastery import kp_mastery
+    from apps.learning.models import Course
+    enrolled_course_ids = Enrollment.objects.filter(
+        student=request.user, is_active=True
+    ).values_list('course_id', flat=True)
+    mastery_courses = [
+        {'course': course, 'rows': kp_mastery(request.user, course)}
+        for course in Course.objects.filter(
+            id__in=enrolled_course_ids,
+            knowledge_points__isnull=False,
+        ).distinct().order_by('title')
+    ]
+
     context = {
         'total_submissions': total_submissions,
         'passed_submissions': passed_submissions,
         'total_points': total_points,
         'exercises_attempted': exercises_attempted,
-        'recent_submissions': recent_submissions
+        'recent_submissions': recent_submissions,
+        'mastery_courses': mastery_courses,
     }
 
     return render(request, 'training/progress.html', context)

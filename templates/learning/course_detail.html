@@ -145,22 +145,35 @@
                         </div>
                     </form>
                     <ul class="list-group">
-                        {% for kp in knowledge_points %}
+                        {% for row in kp_rows %}
                         <li class="list-group-item d-flex justify-content-between align-items-center py-2">
                             <div class="me-3">
-                                <span class="badge {% if kp.difficulty == 'beginner' %}bg-success{% elif kp.difficulty == 'intermediate' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
-                                    {{ kp.get_difficulty_display }}</span>
-                                <strong class="ms-1">{{ kp.title }}</strong>
-                                <span class="text-muted small ms-2">{{ kp.description|truncatechars:60 }}</span>
-                                {% if kp.chapter %}<span class="badge bg-secondary ms-1">{{ kp.chapter.title }}</span>{% endif %}
+                                <span class="badge {% if row.kp.difficulty == 'beginner' %}bg-success{% elif row.kp.difficulty == 'intermediate' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                    {{ row.kp.get_difficulty_display }}</span>
+                                <strong class="ms-1">{{ row.kp.title }}</strong>
+                                <span class="text-muted small ms-2">{{ row.kp.description|truncatechars:60 }}</span>
+                                {% if row.kp.chapter %}<span class="badge bg-secondary ms-1">{{ row.kp.chapter.title }}</span>{% endif %}
+                                <span class="ms-2 small">
+                                    <span class="badge bg-light text-dark border">习题 {{ row.coverage.exercises|default:0 }}</span>
+                                    <span class="badge bg-light text-dark border">考题 {{ row.coverage.questions|default:0 }}</span>
+                                    {% if row.coverage.submissions %}
+                                    <span class="badge bg-light text-dark border">提交 {{ row.coverage.submissions }}</span>
+                                    <span class="badge {% if row.coverage.pass_rate >= 60 %}bg-success{% else %}bg-warning text-dark{% endif %}">通过率 {{ row.coverage.pass_rate }}%</span>
+                                    {% endif %}
+                                    {% if row.coverage.exercises == 0 and row.coverage.questions == 0 %}
+                                    <span class="badge bg-danger" title="尚未被任何习题或考题覆盖">
+                                        未出题 <a href="/training/exercises/create/?kp={{ row.kp.id }}" class="text-white text-decoration-none">去出题→</a>
+                                    </span>
+                                    {% endif %}
+                                </span>
                             </div>
                             <div class="btn-group text-nowrap">
                                 <button class="btn btn-sm btn-outline-secondary"
-                                        onclick="kpEdit({{ kp.id }}, '{{ kp.title|escapejs }}', '{{ kp.description|escapejs }}', '{{ kp.difficulty }}')">
+                                        onclick="kpEdit({{ row.kp.id }}, '{{ row.kp.title|escapejs }}', '{{ row.kp.description|escapejs }}', '{{ row.kp.difficulty }}')">
                                     <i class="bi bi-pencil"></i>
                                 </button>
                                 <button class="btn btn-sm btn-outline-danger"
-                                        onclick="kpDelete({{ kp.id }}, '{{ kp.title|escapejs }}')">
+                                        onclick="kpDelete({{ row.kp.id }}, '{{ row.kp.title|escapejs }}')">
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </div>

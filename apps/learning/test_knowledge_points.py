@@ -175,3 +175,46 @@ class KPExtractFlowTests(KPEndpointSetup):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, '知识点库')
         self.assertContains(response, '列表推导式')
+
+
+class KPCoverageMatrixTests(KPEndpointSetup):
+    """Plan v3 1.1: coverage stats (exercises/questions/submissions/pass
+    rate) rendered on the instructor course manage page."""
+
+    def test_coverage_matrix_counts(self):
+        from apps.training.models import Exercise, Submission
+        from apps.examination.models import Exam, Question
+        kp = KnowledgePoint.objects.create(course=self.course, title='列表')
+        bare = KnowledgePoint.objects.create(course=self.course, title='孤立点')
+        exercise = Exercise.objects.create(
+            title='列表练习', slug='kp-list', description='x',
+            difficulty='beginner', solution_code='def f():\n    return 1',
+            test_cases=[{'input': 'f()', 'expected': 1}])
+        exercise.knowledge_points.add(kp)
+        Submission.objects.create(exercise=exercise, student=self.instructor,
+                                  code='x', status='passed', tests_passed=1,
+                                  tests_total=1)
+        Submission.objects.create(exercise=exercise, student=self.instructor,
+                                  code='y', status='failed')
+        exam = Exam.objects.create(
+            title='覆盖卷', description='x', duration_minutes=30,
+            passing_score=60, max_attempts=3, course=self.course,
+            created_by=self.instructor)
+        question = Question.objects.create(
+            exam=exam, question_type='true_false', question_text='TF?',
+            points=2, order=0)
+        question.knowledge_points.add(kp)
+
+        response = self.client.get(reverse(
+            'learning:instructor-course-manage', args=[self.course.slug]))
+        self.assertEqual(response.status_code, 200)
+        coverage = response.context['kp_coverage']
+        self.assertEqual(coverage[kp.id]['exercises'], 1)
+        self.assertEqual(coverage[kp.id]['questions'], 1)
+        self.assertEqual(coverage[kp.id]['submissions'], 2)
+        self.assertEqual(coverage[kp.id]['pass_rate'], 50)
+        # the bare KP has no coverage at all
+        self.assertEqual(coverage[bare.id]['exercises'], 0)
+        self.assertIsNone(coverage[bare.id]['pass_rate'])
+        self.assertContains(response, '未出题')
+        self.assertContains(response, '去出题')

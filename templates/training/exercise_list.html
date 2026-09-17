@@ -50,6 +50,20 @@
         </div>
     </div>
 
+    <!-- 知识点筛选横幅（薄弱知识点一键练入口） -->
+    {% if filter_kp %}
+    <div class="alert alert-primary d-flex justify-content-between align-items-center">
+        <span>
+            <i class="bi bi-dumbbell"></i>
+            正在练习知识点：<strong>{{ filter_kp.title }}</strong>
+            {% if filter_kp_course %}（{{ filter_kp_course.title }}）{% endif %}
+        </span>
+        <a href="{% url 'training:exercise-list' %}" class="btn btn-sm btn-outline-primary">
+            清除筛选
+        </a>
+    </div>
+    {% endif %}
+
     <!-- Exercises Grid -->
     <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
         {% for exercise in exercises %}
@@ -95,9 +109,16 @@
         </div>
         {% empty %}
         <div class="col-12">
+            {% if filter_kp %}
+            <div class="alert alert-warning text-center">
+                <i class="bi bi-info-circle"></i>
+                知识点《{{ filter_kp.title }}》还没有配套练习——请向教师反馈，教师可在课程管理页为该知识点一键出题。
+            </div>
+            {% else %}
             <div class="alert alert-info text-center">
                 <i class="bi bi-info-circle"></i> No exercises found matching your criteria.
             </div>
+            {% endif %}
         </div>
         {% endfor %}
     </div>

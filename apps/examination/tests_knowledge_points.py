@@ -255,3 +255,71 @@ class QuestionEditKPTests(TestCase):
             created_by=self.instructor)
         clone = clone_question(self.question, target, order=0)
         self.assertEqual(list(clone.knowledge_points.all()), [self.kp])
+
+
+class ExamAIGenerateKPSubsetTests(TestCase):
+    """Plan v3 1.2: instructors scope whole-exam generation to a KP subset."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.instructor = User.objects.create_user(
+            username='teacher', email='t@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.course = Course.objects.create(
+            title='KP 课程', slug='kp-subset', instructor=self.instructor,
+            difficulty_level='beginner')
+        self.kp_a = KnowledgePoint.objects.create(course=self.course, title='A')
+        self.kp_b = KnowledgePoint.objects.create(course=self.course, title='B')
+        self.exam = Exam.objects.create(
+            title='子集卷', description='x', duration_minutes=30,
+            passing_score=60, max_attempts=3, course=self.course,
+            created_by=self.instructor)
+        self.client.force_login(self.instructor)
+
+    def _post(self, **payload):
+        return self.client.post(
+            reverse('examination:exam-ai-generate', args=[self.exam.id]),
+            data=json.dumps(payload), content_type='application/json')
+
+    @mock.patch('apps.ai_agents.ai_config.is_configured', return_value=True)
+    @mock.patch('apps.ai_agents.skills.ExamSkill')
+    def test_subset_selection_reaches_skill(self, skill_cls, _cfg):
+        skill_cls.return_value.run.return_value = {
+            'questions': [], 'code_validated': '0/0'}
+        response = self._post(count=2, knowledge_point_ids=[self.kp_a.id])
+        self.assertEqual(response.status_code, 200)
+        kps = skill_cls.return_value.run.call_args.kwargs['knowledge_points']
+        self.assertEqual([kp['title'] for kp in kps], ['A'])
+
+    @mock.patch('apps.ai_agents.ai_config.is_configured', return_value=True)
+    @mock.patch('apps.ai_agents.skills.ExamSkill')
+    def test_omitted_selection_uses_all_kps(self, skill_cls, _cfg):
+        skill_cls.return_value.run.return_value = {
+            'questions': [], 'code_validated': '0/0'}
+        response = self._post(count=2)
+        self.assertEqual(response.status_code, 200)
+        kps = skill_cls.return_value.run.call_args.kwargs['knowledge_points']
+        self.assertEqual({kp['title'] for kp in kps}, {'A', 'B'})
+
+    @mock.patch('apps.ai_agents.ai_config.is_configured', return_value=True)
+    def test_foreign_kp_ids_rejected(self, _cfg):
+        response = self._post(count=2, knowledge_point_ids=[99999])
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('不属于关联课程', response.json()['error'])
+
+    def test_knowledge_points_endpoint(self):
+        response = self.client.get(reverse(
+            'examination:exam-ai-knowledge-points', args=[self.exam.id]))
+        self.assertEqual(response.status_code, 200)
+        titles = {kp['title'] for kp in response.json()['knowledge_points']}
+        self.assertEqual(titles, {'A', 'B'})
+
+    def test_knowledge_points_endpoint_forbidden(self):
+        other = User.objects.create_user(
+            username='other', email='o@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.client.force_login(other)
+        response = self.client.get(reverse(
+            'examination:exam-ai-knowledge-points', args=[self.exam.id]))
+        self.assertEqual(response.status_code, 403)

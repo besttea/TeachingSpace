@@ -13,6 +13,8 @@ urlpatterns = [
     path('api/<int:pk>/publish/', views.exam_publish, name='exam-publish'),
     path('api/<int:pk>/ai-generate/', views.exam_ai_generate, name='exam-ai-generate'),
     path('api/<int:pk>/ai-status/', views.exam_ai_status, name='exam-ai-status'),
+    path('api/<int:pk>/ai-knowledge-points/', views.exam_ai_knowledge_points,
+         name='exam-ai-knowledge-points'),
     path('api/questions/<int:pk>/ai-modify/', views.question_ai_modify, name='question-ai-modify'),
     path('manage/questions/<int:pk>/edit/', views.question_edit, name='question-edit'),
     path('<int:pk>/', views.ExamDetailView.as_view(), name='exam-detail'),
