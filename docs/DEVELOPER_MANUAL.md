@@ -253,6 +253,13 @@ BaseAgent（薄适配层，API 不变 + role 参数）
 - 开发默认 `CELERY_TASK_ALWAYS_EAGER=True`：`delay()` 内联执行、无需 Redis；生产置 False 后训练判分走后台（提交返回 `running` 状态）。
 - 无 Celery 安装时 `apps/training/tasks.py` 自动降级为同步调用，应用不中断。
 - 新增异步任务：放在已安装 app 的 `tasks.py`，用 `@shared_task`。
+- **重试策略（2.3）**：AI 生成类任务（课程大纲/单元生成/整卷生成）`bind=True, max_retries=2`，
+  失败时 `self.retry(exc, countdown=5·2^n)`（5s→10s，封顶 120s）；视频渲染仅对超时重试一次
+  （脚本错误是确定性的，不重试）。**eager 模式无 broker，Retry 异常会穿透到调用视图**——
+  任务内必须用 `self.request.is_eager` 守卫（见 `apps/learning/tasks.py` / `apps/examination/tasks.py`
+  的既有实现），eager 下直接发布 error 状态并吞掉异常；最终失败状态写入 cache 供前端轮询。
+- 任务进度发布约定：`lesson_gen_status:<id>` / `course_design_status:<id>` /
+  `exam_gen_status:<id>`，状态 `running | retrying | done | error`，TTL 1 小时。
 
 ### 6.6 视频生成管线
 
@@ -379,6 +386,23 @@ docker compose exec web python manage.py createsuperuser
 - **文件**：`media/` 卷（证书、视频、头像）随 pg_dump 同日归档（tar 或对象存储）；
 - **演练**：每季度在测试环境执行一次恢复演练，验证备份可用。
 
+### 9.3 密钥轮换（1.3）
+
+- **轮换时机**：人员离职、疑似泄露、或至少每年一次。
+- **步骤**：① 生成新值 `python -c "import secrets; print(secrets.token_urlsafe(50))"`；② 停机维护窗口内
+  更新 `.env` 的 `SECRET_KEY`（以及 `deepseek_Api`/`ANTHROPIC_API_KEY` 等外部密钥在其供应商侧
+  revoke + 重建）；③ 重启全部 web/worker 进程；④ 轮换后旧会话全部失效（用户需重新登录），提前在公告中说明。
+- **注意**：`SECRET_KEY` 参与签名（session/cookie/CSRF），轮换会导致已签发证书验证码外的一切签名失效；
+  证书验证码是随机 UUID 存库，不受影响。
+
+### 9.4 依赖与基线更新（1.4）
+
+- **季度升级流程**：① `pip install -U -r requirements.txt`（venv 内，记录 diff）；② 全量测试
+  `pytest -m "not slow"` + 冒烟 `pytest -m slow`；③ `pip-audit`（CI 每次运行，本地可手动执行）；
+  ④ 有修复项（security）则优先升；⑤ 升级后回归 AI 连通性 `manage.py test_ai_agents`；
+  ⑥ 记录版本变更到 CHANGELOG。
+- CI 的 pip-audit 步骤当前为非阻断（`|| true`）——安全告警由人工在 PR 页查看并跟进。
+
 ## 10. 开发规范
 
 1. **权限**：学习课堂的教师权限用 `_can_edit_lesson()`（课程 instructor 或 staff）；所有单元格写接口必须校验；学生可见内容一律过滤 `is_published`。
@@ -391,17 +415,16 @@ docker compose exec web python manage.py createsuperuser
 5. **数据库操作**：涉及计数/积分的读改写一律 `F()` + `select_for_update()`；顺序字段批量移动用两阶段（先 +1,000,000 再归位）避免撞唯一约束。
 6. **AI 提示词**：f-string 内的 JSON 示例必须双花括号（单花括号在 Python 3.12+ 会被当表达式求值）；函数型测试用例用 `expected` 键（不要 `expected_output`）。
 7. **文档同步**：改公开行为后同步本手册、`docs/USER_MANUAL.md`、`CLAUDE.md` 与 `OPTIMIZATION_PLAN.md` 进度记录。
+8. **质量门禁（6.5）**：`ruff check apps config` 必须零告警（配置见 `pyproject.toml`；`ruff format` 有意不启用——与既有风格冲突，改动 98 个文件收益为负）；本地提交前装 `pre-commit`（`.pre-commit-config.yaml`）；核心模块（code_runner/learning/training/examination）合并覆盖率 ≥80% 由 CI 强制（`sandbox_runner.py` 以子进程执行，从行覆盖中排除）。
 
 ## 11. 已知限制与路线图
 
 | 项 | 状态 | 说明 |
 |----|------|------|
-| 单元格版本恢复 UI | 后端就绪，前端未接 | 恢复 API + 快照已实现，编辑器暂无按钮 |
-| 聊天流式响应 | 未实现 | 当前整段返回（`max_tokens=2000`），长回答有延迟 |
-| 视频缩略图/CDN | 未实现 | 渲染产物本地存储；缩略图与 CDN 归档待做 |
-| 异步 AI 生成 | 未实现 | `generate_*` 命令同步执行；接入 Celery 后可将耗时生成移入队列 |
+| 视频 CDN/对象存储 | 未实现 | 渲染产物与缩略图本地存储；生产 CDN 归档待做 |
+| 流式 AI 内容生成 | 未实现 | 生成类任务为异步+轮询（非 SSE）；聊天流式已实现 |
 | Docker 镜像源 | 视网络 | 国内环境需镜像源或代理拉取基础镜像（DaoCloud 已验证可用） |
-| 多语言 | 中文为主 | 界面中英混杂，完整 i18n 未做 |
+| 多语言 | 中文为主 | 界面中英混杂，完整 i18n 未做（已决策归档，见 T23） |
 
 ---
 

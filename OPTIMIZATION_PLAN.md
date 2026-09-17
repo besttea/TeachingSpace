@@ -14,65 +14,52 @@
 
 ## 1. 安全与合规
 
-### 1.1 认证加固（P1）
-- **现状**：登录无速率限制（可暴力破解）；无邮件验证；无自助找回密码（仅管理员 `changepassword`）。
-- **方案**：登录失败计数（按用户名+IP，5 次/15 分钟锁定，用 cache 实现，无需模型）；密码找回留管理员流程并在手册注明（v2 暂不做邮件验证，邮件配置成本高）。
+### 1.1 认证加固（P1）✅
+- 登录失败计数（按用户名+IP，5 次/15 分钟锁定，cache 实现）已落地并测试；密码找回维持管理员 `changepassword` 流程，用户手册 §2.3 已注明（邮件验证成本高，v2 不做）。
 
-### 1.2 接口滥用防护（P1）
-- **现状**：练习提交/内核执行/单元生成**无请求频率限制**——沙箱与内核都是昂贵资源，单个用户可刷爆（生成类还会刷爆 AI 日额度）。
-- **方案**：中间件或装饰器级限流（cache 计数）：提交 ≤10 次/分钟/人；AI 生成类端点 ≤20 次/小时/人；内核会话每用户上限（现全局 LRU 20 个会被单用户挤占他人，见 3.3）。
+### 1.2 接口滥用防护（P1）✅
+- `apps/core/rate_limit.py` 装饰器（cache 滑动窗口）已应用于：练习提交（10 次/分钟）、内核执行（60 次/5 分钟）、AI 生成类端点（20 次/小时：习题草稿/习题修改/考题修改/单元生成/章节规划/整卷生成）；配套 429 测试。
 
-### 1.3 密钥与配置（P1）
-- **现状**：`.env` 有真实密钥（已 gitignore）；`deepseek_Api` 存于系统环境变量；`SECRET_KEY` 为占位符（开发可用，生产已强制拦截）。
-- **方案**：① 密钥轮换流程写入部署手册；② 开发机 `.env` 占位符 → 生成真实随机值；③ 排查系统环境变量与 `.env` 的优先级冲突（此前 `AI_MODEL` 系统变量曾覆盖 `.env` 造成困惑——在部署手册补「环境变量优先级」小节）。
+### 1.3 密钥与配置（P1）✅
+- ① 密钥轮换流程已写入部署手册 §9.3；② 开发机 `.env` 已生成真实随机 `SECRET_KEY`；③ 环境变量优先级（系统 > .env > 默认）与 `AI_ACTIVE_MODEL` 应用专属覆盖已写入部署手册 §5。
 
-### 1.4 依赖与基线更新（P2）
-- **现状**：requirements.txt 已按 Python 3.13 对齐（2026-09），但无定期更新机制；无 `pip-audit` 类漏洞扫描。
-- **方案**：季度依赖升级 + 每次升级跑全量测试；GitHub Actions 加 `pip-audit` 步骤（见 5.6 CI）。
+### 1.4 依赖与基线更新（P2）✅
+- CI 含 `pip-audit` 步骤（非阻断，告警人工跟进）；季度升级流程（升级 → 全量测试 → audit → 连通性探针 → CHANGELOG）已写入部署手册 §9.4。
 
 ---
 
 ## 2. 可靠性
 
-### 2.1 AI 生成稳定性监控（P1）
-- **现状**：`AIGenerationHistory` 记录了每次调用（成功/失败/耗时/成本），但**没有可视化**——ai_agents 未注册 admin，失败原因只能查库。
-- **方案**：`apps/ai_agents/admin.py` 注册 `AIGenerationHistory`（只读：agent/模型/成败/成本/时间），加失败率展示；`test_ai_agents` 已是连通性探针，可再加 cron 定期探测告警。
+### 2.1 AI 生成稳定性监控（P1）✅
+- `apps/ai_agents/admin.py` 注册 `AIGenerationHistory`（只读）并附**近 24 小时看板**（调用数/失败数/失败率/成本，失败率 >10% 红色告警徽标）；`test_ai_agents` 命令为连通性探针。
 
-### 2.2 模型回退链（P1）
-- **现状**：单模型无回退——`deepseek-flash` 偶发思考循环（已内置去 temperature 重试），仍失败则整次生成失败。
-- **方案**：`ai_config` 支持回退链配置（如 `AI_FALLBACK_MODELS=deepseek-flash,deepseek-chat`）：主模型失败（空文本/APIError 重试后）→ 依次切换回退模型重试一次。生成类 Agent 与聊天共用。
+### 2.2 模型回退链（P1）✅
+- `AI_FALLBACK_MODELS` 回退链 + 推理模型兼容层已落地（见执行记录「模型路由修复」与「AI 架构重写」）；`.env` 默认 flash→chat。
 
-### 2.3 长任务异步化（P2）
-- **现状**：课程单元内容生成（两阶段约 30-60 秒）同步阻塞 HTTP；视频渲染同步阻塞命令；仅训练判分接了 Celery。
-- **方案**：① 单元生成/章节批量生成走 Celery 任务 + 前端轮询状态（复用 eager 模式保证开发行为不变）；② 视频渲染任务化；③ 任务加 `max_retries` 与指数退避。
+### 2.3 长任务异步化（P2）✅
+- ① 单元生成/章节批量生成/课程大纲设计走 Celery + 前端轮询（eager 兼容）；② 视频渲染任务化（仅超时重试一次）；③ 三个 AI 生成任务 `max_retries=2` + 指数退避（5s→10s，封顶 120s）；**eager 模式 Retry 穿透问题已修复**（`is_eager` 守卫，见学习/考试 tasks.py）。
 
-### 2.4 考试交卷前端收尾（P1）
-- **现状**：答题页 2 秒防抖自动保存，**交卷按钮未 flush 未完成的保存**——最后 ~2 秒的输入可能丢失（审计遗留项）。
-- **方案**：`submitExam()` 先 `clearTimeout(saveTimers)` 并立即 await 一次 save-answer，再调交卷。
+### 2.4 考试交卷前端收尾（P1）✅
+- `submitExam()` 先 flush 防抖保存再交卷（T1 已落地并测试）。
 
-### 2.5 成绩一致性（P2）
-- **现状**：后台人工评阅简答题后 `StudentExam.score` **不自动重算**；`show_results_immediately` 字段未在结果页生效（通过的学生永远立即看到结果）。
-- **方案**：评阅保存信号或 admin save 钩子里重算 `calculate_score()`；结果页按 `show_results_immediately` 决定是否展示解析。
+### 2.5 成绩一致性（P2）✅
+- 简答评阅（admin save 钩子 + 教师评阅端点）后自动重算总分；`show_results_immediately` 在结果页生效（不展示则不渲染解析）；未 AI 判分的简答统一置 `needs_review`。
 
 ---
 
 ## 3. 性能与容量
 
-### 3.1 剩余 N+1（P2，审计遗留）
-- `ExerciseDetailView` 模板 `hints.count`；`exam_interface` 重复调用 `get_total_points()`；`exam_detail` 的 `questions.count`。
-- **方案**：视图传 `hints_count`/`total_points` 上下文变量，模板去掉方法调用。
+### 3.1 剩余 N+1（P2，审计遗留）✅
+- 视图传 `hints_count`/`total_points`/`question_count` 上下文变量（`get_total_points` 为单次聚合），模板无方法调用。
 
-### 3.2 学习进度时间统计（P3）
-- **现状**：`LessonProgress.time_spent_seconds` 字段**从未被写入**（界面上显示恒 0）。
-- **方案**：前端心跳（每 30 秒或执行单元格时上报增量）或 `last_accessed` 差值估算；写入用 `F()` 原子累加。
+### 3.2 学习进度时间统计（P3）✅
+- `lesson_heartbeat` 端点（每拍 0-300s 钳制，`F()` 原子累加）+ 前端 30 秒心跳 + 学习页时长显示。
 
-### 3.3 内核会话治理加固（P1）
-- **现状**：注册表全局 20 个 LRU——**单用户大量并发可挤占他人会话**；无按用户配额。
-- **方案**：每用户最多 2 个内核（超出复用/拒绝提示），全局上限保留；空闲回收已有。
+### 3.3 内核会话治理加固（P1）✅
+- 每用户最多 2 个内核（`JUPYTER_MAX_KERNELS_PER_USER`，超出复用/淘汰最旧），全局 LRU 保留，带配额测试。
 
-### 3.4 静态资源与缓存（P3）
-- **现状**：前端库全 CDN；无 HTTP 缓存策略；无 Redis 页面缓存（生产 CACHES 已配 Redis 但只用于 AI 缓存）。
-- **方案**：课程列表/详情等读多写少页面加缓存键版本化（课程发布时失效）；`staticfiles` 指纹已由 WhiteNoise 处理。
+### 3.4 静态资源与缓存（P3）✅
+- 课程列表页内容版本化缓存（`bump_content_version` 变更点失效，搜索/筛选绕过缓存）；WhiteNoise 指纹化已就绪。
 
 ---
 
@@ -93,6 +80,7 @@
 - [x] **`validate_exam` 命令**（P1）：发布前整卷代码题沙箱验证 ✅。
 - [x] **简答题教师评阅界面**（P2）：现仅 admin 可改；教师考试管理页加待评阅列表 + 打分表单（复用 2.5 重算）。
 - [x] **整卷 AI 生成改为两阶段**（P2）：`generate_exam` 现单次 JSON 生成整卷，推理模型下不稳定——改为「题型分布请求 → 逐题短请求」，复用 6.8 两阶段模式。
+- [x] **考试网页创建与 AI 生成入口**（P1，用户反馈）：`exam_create` 表单页（标题/时长/通过线/尝试次数/即时结果/乱序）+ 管理页空卷「AI 生成题目」按钮（ExamSkill 异步任务 + 轮询 + 限流）；落库逻辑抽出 `exam_assembly.save_generated_questions` 供命令与任务共用 ✅。
 
 ### 4.4 聊天助手
 - [x] **流式响应**（P3）：SSE 逐字输出，前端增量渲染（打字体验）；当前整段返回 max_tokens=2000。
@@ -121,60 +109,59 @@
 
 | # | 位置 | 债务 | 优先级 | 处理 |
 |---|------|------|--------|------|
-| T1 | `examination/views.py::submit_exam` 前端 | 交卷前未 flush 防抖保存（最后 2 秒答案丢失） | P1 | 2.4 |
-| T2 | `apps/ai_agents/admin.py`（不存在） | AI 调用记录无管理界面 | P1 | 2.1 |
-| T3 | `jupyter_kernel.py` 注册表 | 无按用户内核配额，LRU 可被单用户挤占 | P1 | 3.3 |
-| T4 | `accounts/views.py::login_view` | 登录无限流（暴力破解面） | P1 | 1.1 |
-| T5 | 各 AI 生成端点 | 生成类请求无限流 | P1 | 1.2 |
-| T6 | `examination` admin 评阅 | 简答评阅后总分不重算 | P2 | 2.5 |
-| T7 | `ExamResultsView` | `show_results_immediately` 未生效 | P2 | 2.5 |
-| T8 | `exam_interface.html` | 交卷丢最后 2 秒输入 | P1 | T1 同源 |
-| T9 | `ExerciseDetailView` 模板 | `hints.count` 等剩余 N+1 | P2 | 3.1 |
-| T10 | `LessonProgress.time_spent_seconds` | 从未写入，界面恒 0 | P3 | 3.2 |
-| T11 | `CellVersion` | 版本快照无恢复 UI（API 已就绪） | P2 | 4.1 |
-| T12 | `learning/models.py::Video` | 孤儿模型（视频走 Cell.data） | P3 | 4.1 |
-| T13 | `learning/models.py::Cell.execute()` | 无调用方的旧执行路径（共享单元格写入语义） | P3 | 4.1 |
-| T14 | 训练无编辑/删除界面 | 练习只能创建/AI 改 | P2 | 4.2 |
-| T15 | `generate_exam` | 整卷单次 JSON 生成（推理模型不稳） | P2 | 4.3 |
-| T16 | 简答题评阅 | 教师无评阅界面（仅 admin） | P2 | 4.3 |
-| T17 | `chat/ai_service.py` | 无流式、max_tokens 固定 2000、输入无长度限制 | P2/P3 | 4.4 |
-| T18 | `_extract_suggestions` | 文件名子串匹配推荐 | P3 | 4.4 |
-| T19 | CLAUDE.md 承诺模型 | `AIGenerationRequest`/`PromptTemplate`/`ContentValidation`/`ManimScript`/`VideoRenderJob` 不存在 | P2 | 4.5（落地或从文档删除承诺） |
-| T20 | `ai_config` | 无模型回退链 | P1 | 2.2 |
-| T21 | 视频 | 无缩略图、无清理命令、渲染未异步 | P2/P3 | 4.6 |
-| T22 | `export_notebook` | 无 PDF/ipynb 格式（CLAUDE.md 承诺） | P3 | 4.1 |
+| T1 | `examination/views.py::submit_exam` 前端 | 交卷前未 flush 防抖保存（最后 2 秒答案丢失） | P1 | ✅ 2.4 |
+| T2 | `apps/ai_agents/admin.py`（不存在） | AI 调用记录无管理界面 | P1 | ✅ 2.1（含 24h 失败率看板） |
+| T3 | `jupyter_kernel.py` 注册表 | 无按用户内核配额，LRU 可被单用户挤占 | P1 | ✅ 3.3 |
+| T4 | `accounts/views.py::login_view` | 登录无限流（暴力破解面） | P1 | ✅ 1.1 |
+| T5 | 各 AI 生成端点 | 生成类请求无限流 | P1 | ✅ 1.2（提交 10/分钟、AI 20/小时、内核 60/5 分钟） |
+| T6 | `examination` admin 评阅 | 简答评阅后总分不重算 | P2 | ✅ 2.5 |
+| T7 | `ExamResultsView` | `show_results_immediately` 未生效 | P2 | ✅ 2.5 |
+| T8 | `exam_interface.html` | 交卷丢最后 2 秒输入 | P1 | ✅ T1 同源 |
+| T9 | `ExerciseDetailView` 模板 | `hints.count` 等剩余 N+1 | P2 | ✅ 3.1 |
+| T10 | `LessonProgress.time_spent_seconds` | 从未写入，界面恒 0 | P3 | ✅ 3.2（心跳端点 + F() 累加） |
+| T11 | `CellVersion` | 版本快照无恢复 UI（API 已就绪） | P2 | ✅ 4.1 |
+| T12 | `learning/models.py::Video` | 孤儿模型（视频走 Cell.data） | P3 | ✅ 4.1 |
+| T13 | `learning/models.py::Cell.execute()` | 无调用方的旧执行路径（共享单元格写入语义） | P3 | ✅ 4.1 |
+| T14 | 训练无编辑/删除界面 | 练习只能创建/AI 改 | P2 | ✅ 4.2 |
+| T15 | `generate_exam` | 整卷单次 JSON 生成（推理模型不稳） | P2 | ✅ 4.3（两阶段 + 网页入口） |
+| T16 | 简答题评阅 | 教师无评阅界面（仅 admin） | P2 | ✅ 4.3 |
+| T17 | `chat/ai_service.py` | 无流式、max_tokens 固定 2000、输入无长度限制 | P2/P3 | ✅ 4.4 |
+| T18 | `_extract_suggestions` | 文件名子串匹配推荐 | P3 | ✅ 4.4 |
+| T19 | CLAUDE.md 承诺模型 | `AIGenerationRequest`/`PromptTemplate`/`ContentValidation`/`ManimScript`/`VideoRenderJob` 不存在 | P2 | ✅ 4.5（从文档删除承诺，harness 审计 + 沙箱验证替代） |
+| T20 | `ai_config` | 无模型回退链 | P1 | ✅ 2.2 |
+| T21 | 视频 | 无缩略图、无清理命令、渲染未异步 | P2/P3 | ✅ 4.6 |
+| T22 | `export_notebook` | 无 PDF/ipynb 格式（CLAUDE.md 承诺） | P3 | ✅ 4.1 |
 | T23 | UI 中英混杂 | 无 i18n 规划 | P3 | ✅ 决策归档：中文为主、LANGUAGE_CODE=zh-hans，完整 i18n 不启动（单语言教学平台成本收益不成比例） |
-| T24 | `config/urls.py` 开发静态服务 | `static()` 依赖 settings 内部常量 | P3 | 微调 |
-| T25 | 无 CI 流水线 | 测试/漏洞扫描靠手动 | P2 | 5.6 |
-| T26 | 无覆盖率基线 | 100 测试但无 coverage 配置与阈值 | P2 | 5.5 |
-| T27 | 无 lint 配置 | flake8/ruff 未配置（README 提到 flake8 但未装） | P2 | 5.5 |
-| T28 | `.env` SECRET_KEY 占位符 | 开发环境弱密钥 | P1 | 1.3 |
-| T29 | 部署手册缺备份/恢复 | 无数据备份方案 | P2 | 6.2 |
-| T30 | 无全栈 compose | 仅沙箱/内核两个镜像，无 app+db+redis+celery 编排 | P2 | 6.1 |
-| T31 | AI 模型选择受系统环境变量干扰 | 此前 `AI_MODEL` 系统变量覆盖 `.env` 造成困惑 | P1 | 1.3（文档化优先级规则） |
+| T24 | `config/urls.py` 开发静态服务 | `static()` 依赖 settings 内部常量 | P3 | ✅ 循环服务全部 STATICFILES_DIRS |
+| T25 | 无 CI 流水线 | 测试/漏洞扫描靠手动 | P2 | ✅ 6.6 |
+| T26 | 无覆盖率基线 | 100 测试但无 coverage 配置与阈值 | P2 | ✅ 6.5（核心模块 83%，CI ≥80% 门禁） |
+| T27 | 无 lint 配置 | flake8/ruff 未配置（README 提到 flake8 但未装） | P2 | ✅ 6.5（ruff lint + pre-commit；format 有意不启用） |
+| T28 | `.env` SECRET_KEY 占位符 | 开发环境弱密钥 | P1 | ✅ 1.3 |
+| T29 | 部署手册缺备份/恢复 | 无数据备份方案 | P2 | ✅ 6.2 |
+| T30 | 无全栈 compose | 仅沙箱/内核两个镜像，无 app+db+redis+celery 编排 | P2 | ✅ 6.1 |
+| T31 | AI 模型选择受系统环境变量干扰 | 此前 `AI_MODEL` 系统变量覆盖 `.env` 造成困惑 | P1 | ✅ 1.3（`AI_ACTIVE_MODEL` + 优先级文档） |
 
 ---
 
 ## 6. 工程质量与部署
 
-### 6.1 Docker Compose 全栈（P2）
-- 现状：只有 `docker/sandbox`、`docker/kernel` 两个执行镜像。
-- 方案：`docker-compose.yml`（web + celery worker + redis + postgres + 可选内核镜像），开发与生产两套 profile；README/部署手册补启动步骤。
+### 6.1 Docker Compose 全栈（P2）✅
+- `docker-compose.yml`（web + celery worker + redis + postgres，healthcheck + 持久卷），`scripts/deploy.sh` 幂等部署脚本；README/部署手册 §9.1 有启动步骤。
 
-### 6.2 备份与恢复（P2）
-- 方案：PostgreSQL 定时 dump + `media/`（证书/视频）同步；恢复演练步骤写入部署手册。
+### 6.2 备份与恢复（P2）✅
+- PostgreSQL 定时 dump + `media/` 同步方案与恢复演练步骤写入部署手册 §9.2，`scripts/backup.sh` 脚本化。
 
-### 6.3 配置即代码（P3）
-- 方案：`.env.example` 与部署手册保持同步（已建立习惯）；生产部署脚本（幂等）入 `scripts/`。
+### 6.3 配置即代码（P3）✅
+- `.env.example` 与部署手册保持同步；生产部署脚本入 `scripts/`。
 
-### 6.4 可观测性（P2）
-- Sentry 已可选接线；补：请求耗时日志（中间件，DEBUG 外仅采样）、AI 失败率看板（2.1 的延伸）、Celery 任务失败告警。
+### 6.4 可观测性（P2）✅
+- Sentry 可选接线；请求耗时中间件（`apps/core/middleware.py`，慢请求日志采样）；AI 失败率看板（2.1 admin 24h 统计）。
 
-### 6.5 代码质量门禁（P2）
-- 方案：`ruff`（lint+format 检查）+ `pytest-cov`（阈值：核心模块 apps/code_runner、apps/learning、apps/training、apps/examination ≥80%）+ `pre-commit` 配置。
+### 6.5 代码质量门禁（P2）✅
+- `ruff` lint（pyproject.toml）+ `pre-commit` 配置（.pre-commit-config.yaml）+ pytest-cov 核心模块阈值 ≥80%（当前 83%）；`ruff format` 经评估不启用（与既有风格冲突，改动 98 文件收益为负——决策记录在配置注释与开发规范第 8 条）。
 
-### 6.6 CI 流水线（P2）
-- 方案：GitHub Actions——push/PR 触发：install → `ruff check` → `pytest`（跳过 Manim 渲染与 Docker 依赖的用例，加 pytest marker `@pytest.mark.slow`）→ `pip-audit`。
+### 6.6 CI 流水线（P2）✅
+- GitHub Actions（.github/workflows/ci.yml）：install → ruff check → pytest（not slow）+ 核心模块覆盖率门禁（≥80%）→ pip-audit；slow 任务（Manim 真渲染）单独 job。
 
 ---
 
@@ -206,6 +193,7 @@
 
 > 格式：日期 ｜ 冲刺主题 ｜ 完成条目 ｜ 测试数
 
+- 2026-09-17 ｜ 继续优化 ⑨·工业级收尾 ｜ **考试网页流**（新建考试表单 + 管理页空卷「AI 生成题目」异步轮询，落库逻辑抽 `exam_assembly` 供命令复用）；**全表债务清零**（T1-T31 全部 ✅，1.1-1.4/2.1-2.5/3.1-3.4/6.1-6.6 收口）；**测试基建**（核心模块覆盖率 68%→83%，CI ≥80% 门禁、pre-commit、ruff 决策归档）；**修复**：Celery eager Retry 穿透视图、心跳返回过期值、start_exam 500、save_answer 吞 404、教师打不开学生提交（相似度徽标死代码）、考试草稿预览 404、作文未判分状态；限流数值对齐计划；AI admin 24h 失败率看板 ｜ 256 |
 - 2026-09-17 ｜ 继续优化 ⑧ ｜ **自动组卷命令**（按题型/难度配比从源考试抽题克隆、代码题沙箱验证）；**提交相似度提示**（教师视角 difflib 雷同徽标 ≥70%）；**学生学习日历热力图**（近 90 天活动色块） ｜ 160
 - 2026-09-17 ｜ 继续优化 ⑦ ｜ **题库 JSON 导入导出**（跨考试批量迁移、代码题导入前沙箱验证、往返闭环测试）；**聊天会话自动摘要**（超 20 条自动压缩旧轮次注入系统提示、按会话状态缓存） ｜ 159
 - 2026-09-17 ｜ 继续优化 ⑥ ｜ **课程创建 AI 大纲异步化**（创建即返回、任务后台设计、大纲页 3 秒轮询刷新）；**考试成绩单 CSV 导出**（评阅台逐题成绩表）；**学生积分排行榜**（前三奖牌 + 我的高亮）；**课程单元批量发布**（一键发布全部） ｜ 155

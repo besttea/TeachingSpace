@@ -520,9 +520,9 @@ Create a `.env` file based on `.env.example`:
   - ✅ Base agent class with Anthropic API integration (custom base URL support, temperature/max_tokens overrides)
   - ✅ Learning agent (lesson generation, wired to `generate_lesson` command, optional notebook grounding)
   - ✅ Training agent (exercise generation with function-based test cases + hints, wired to `generate_exercises`)
-  - ✅ Examination agent (question generation wired to `generate_exam` — drafts only; essay answers AI-graded on exam submit when an API key is configured)
+  - ✅ Examination agent (question generation wired to `generate_exam` command AND the instructor web flow — `exam_create` form + per-exam「AI 生成题目」async button on the manage page, shared `exam_assembly.save_generated_questions`; drafts only; essay answers AI-graded on exam submit when an API key is configured, else `needs_review`)
   - ✅ Custom API base URL support
-  - ✅ 46 regression tests (sandbox escapes, grading, auth, permissions, XSS filter, AI tool loop) — run via `pytest` or `manage.py test`
+  - ✅ 256 fast tests (sandbox escapes, grading, auth, permissions, XSS filter, AI tool loop, view/command coverage for examination/training/learning) + slow suite (real Manim render); core-module coverage gate ≥80% in CI — run via `pytest` or `manage.py test`
 
 **In Progress/Pending:**
 - ⏳ Frontend templates refinement

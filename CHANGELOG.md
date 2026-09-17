@@ -5,6 +5,28 @@ All notable changes to the Python Learning Platform will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-09-17
+
+### Added
+- **Exam web flow (no more CLI-only shell)**: instructor console gains a "新建考试" form (duration/passing score/max attempts/immediate-results/randomization) and an "AI 生成题目" button on empty exams — two-phase ExamSkill generation (type distribution → per-question → code questions sandbox-validated) runs as a Celery task with 3s polling; the question-saving logic is shared between the web task and the `generate_exam` command (`apps/examination/exam_assembly.py`)
+- **AI audit dashboard**: read-only `AIGenerationHistory` admin gains a 24h health banner (calls / failures / failure rate / cost, >10% failure rate highlighted)
+- **Celery retry policy** (plan 2.3): AI-generation tasks retry twice with exponential backoff (5s→10s, cap 120s); video render retries once on timeout only; eager-mode `Retry` propagation into views fixed (`is_eager` guard) for learning/video/exam tasks
+- **Quality gates** (plan 6.5/6.6): `.pre-commit-config.yaml` (ruff lint + hygiene hooks), coverage config (`sandbox_runner.py` excluded — subprocess-executed), CI enforces core-module coverage ≥80% (`code_runner`/`learning`/`training`/`examination`, currently 83%)
+- Rate limits aligned with plan 1.2: exercise submission 10/min, AI endpoints 20/h
+
+### Fixed
+- `start_exam` returned 500 instead of 404 for unpublished exams; `save_answer` degraded 404s to 400s; kernel/heartbeat/complete endpoints swallowed `Http404` (all now re-raise)
+- Instructors could never open a student's submission detail (plagiarism-similarity badge was dead code) — instructors/staff may now open any submission
+- Exam draft preview 404 for the exam's own creator (manage page links to it); draft take-view allowed for staff properly
+- Essay answers stayed `pending` when AI grading was unavailable — now set `needs_review` so the review console shows them
+- Lesson heartbeat returned a stale `time_spent_seconds` after the atomic `F()` update (now refreshed)
+- Kernel matplotlib test now skips cleanly when matplotlib is not installed (dev venv without Manim deps)
+
+### Changed
+- Test suite: 160 → 256 tests; new view/command coverage for examination (browse/start/take/save/submit/results/console/AI-gen), training (browse/submit/hints/create/history/progress), learning (courses/lessons/publish/roster/heartbeat/kernel) and all four learning management commands
+- OPTIMIZATION_PLAN: debt table T1–T31 all closed; sections 1.1–1.4, 2.1–2.5, 3.1–3.4, 6.1–6.6 marked done with as-built notes
+- Manuals: exam web flow (USER_MANUAL §8.5), login lockout & password recovery (§2.3), key rotation (§9.3), quarterly dependency update + pip-audit (§9.4), Celery retry contract (§6.5), quality-gate rules (dev rules §10.8), stale limitations table refreshed
+
 ## [1.2.0] - 2026-09-16
 
 ### Security
