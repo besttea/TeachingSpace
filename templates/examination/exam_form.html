@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+
+{% block title %}新建考试 - Python Learning{% endblock %}
+
+{% block content %}
+<div class="container py-4" style="max-width: 720px;">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-plus-square"></i> 新建考试</h2>
+        <a href="{% url 'examination:exam-manage' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> 返回考试管理
+        </a>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <form method="post">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label class="form-label" for="title">考试标题 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="title" name="title"
+                           placeholder="例如：Python 基础期中考试" maxlength="200" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" for="description">考试说明</label>
+                    <textarea class="form-control" id="description" name="description" rows="2"
+                              placeholder="对学生的考试说明（可选）"></textarea>
+                </div>
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" for="duration_minutes">时长（分钟）</label>
+                        <input type="number" class="form-control" id="duration_minutes"
+                               name="duration_minutes" value="60" min="1" max="600" required>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" for="passing_score">通过线（0-100 分）</label>
+                        <input type="number" class="form-control" id="passing_score"
+                               name="passing_score" value="60" min="0" max="100" required>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" for="max_attempts">最大尝试次数</label>
+                        <input type="number" class="form-control" id="max_attempts"
+                               name="max_attempts" value="3" min="1" max="20" required>
+                    </div>
+                </div>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="show_results_immediately"
+                           name="show_results_immediately" checked>
+                    <label class="form-check-label" for="show_results_immediately">
+                        交卷后立即展示答案与解析
+                    </label>
+                </div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="randomize_questions"
+                           name="randomize_questions" checked>
+                    <label class="form-check-label" for="randomize_questions">
+                        题目顺序随机（每次尝试固定种子）
+                    </label>
+                </div>
+                <div class="alert alert-light border small mb-3">
+                    <i class="bi bi-stars"></i> 创建后可在「考试管理」页对空考试点击
+                    <strong>AI 生成题目</strong>，一键生成整卷（选择题 / 判断题 / 编程题 / 简答题，
+                    编程题自动沙箱验证）。生成结果为草稿，需你审核后发布。
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-lg"></i> 创建（草稿）
+                    </button>
+                    <a href="{% url 'examination:exam-manage' %}" class="btn btn-outline-secondary">取消</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

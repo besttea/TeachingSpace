@@ -7,7 +7,7 @@ from django.http import HttpResponse, JsonResponse, Http404, FileResponse
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
 from django.db import transaction
-from django.db.models import Count, Prefetch
+from django.db.models import Count, Prefetch, Q
 from django.conf import settings
 from django.core.files.base import ContentFile
 import json
@@ -61,10 +61,11 @@ class ExamDetailView(LoginRequiredMixin, DetailView):
     context_object_name = 'exam'
 
     def get_queryset(self):
-        """Draft exams are only visible to staff."""
+        """Draft exams are only visible to their creator and staff."""
         qs = Exam.objects.all()
-        if not self.request.user.is_staff:
-            qs = qs.filter(is_published=True)
+        user = self.request.user
+        if not user.is_staff:
+            qs = qs.filter(Q(is_published=True) | Q(created_by=user))
         return qs
 
     def get_context_data(self, **kwargs):
@@ -101,7 +102,8 @@ def start_exam(request, pk):
     # Lock the exam row so concurrent clicks can't create duplicate
     # attempt_numbers (unique_together would otherwise raise IntegrityError).
     with transaction.atomic():
-        exam = Exam.objects.select_for_update().get(pk=pk, is_published=True)
+        exam = get_object_or_404(
+            Exam.objects.select_for_update(), pk=pk, is_published=True)
 
         # Check if user has attempts remaining
         attempt_count = StudentExam.objects.filter(
@@ -142,12 +144,18 @@ class TakeExamView(LoginRequiredMixin, TemplateView):
     template_name = 'examination/exam_interface.html'
 
     def get(self, request, exam_id, attempt_id):
-        student_exam = get_object_or_404(
-            StudentExam,
-            id=attempt_id,
-            student=request.user,
-            exam_id=exam_id
-        )
+        # Staff may open any attempt (e.g. preview a draft exam); students
+        # only their own.
+        if request.user.is_staff:
+            student_exam = get_object_or_404(
+                StudentExam, id=attempt_id, exam_id=exam_id)
+        else:
+            student_exam = get_object_or_404(
+                StudentExam,
+                id=attempt_id,
+                student=request.user,
+                exam_id=exam_id
+            )
 
         # Draft exams cannot be taken (unless staff)
         if not (student_exam.exam.is_published or request.user.is_staff):
@@ -260,6 +268,9 @@ def save_answer(request):
             'message': '答案已保存'
         })
 
+    except Http404:
+        # 404s must stay 404s (wrong attempt/question) — not degraded to 400
+        raise
     except Exception as e:
         return JsonResponse({
             'success': False,
@@ -353,6 +364,7 @@ def submit_exam(request):
                 elif answer.question.question_type == 'essay':
                     from apps.ai_agents.ai_config import is_configured
                     essay_question = answer.question.get_specific_question()
+                    graded_by_ai = False
                     if essay_question and is_configured():
                         try:
                             from apps.ai_agents.examination_agent import ExaminationAgent
@@ -370,8 +382,12 @@ def submit_exam(request):
                             answer.feedback = evaluation.get('feedback', '')
                             answer.status = 'graded'
                             answer.save()
+                            graded_by_ai = True
                         except Exception as e:
                             logger.warning('AI essay grading failed, keeping needs_review: %s', e)
+                    if not graded_by_ai:
+                        answer.status = 'needs_review'
+                        answer.save()
 
             # Calculate total score
             student_exam.score = student_exam.calculate_score()
@@ -434,6 +450,124 @@ class InstructorExamListView(LoginRequiredMixin, TemplateView):
 
 
 @login_required
+def exam_create(request):
+    """Manual exam creation form (instructor/staff) — the missing web entry
+    point for building exams without the CLI."""
+    if not (request.user.is_staff or request.user.user_type == 'instructor'):
+        from django.core.exceptions import PermissionDenied
+        raise PermissionDenied
+
+    if request.method == 'POST':
+        title = (request.POST.get('title') or '').strip()
+        description = (request.POST.get('description') or '').strip()
+        try:
+            duration = int(request.POST.get('duration_minutes', 60))
+            passing = int(request.POST.get('passing_score', 60))
+            attempts = int(request.POST.get('max_attempts', 3))
+        except (TypeError, ValueError):
+            duration = passing = attempts = 0
+
+        errors = []
+        if not title:
+            errors.append('标题不能为空')
+        if not (1 <= duration <= 600):
+            errors.append('时长需在 1-600 分钟之间')
+        if not (0 <= passing <= 100):
+            errors.append('通过线需在 0-100 之间')
+        if not (1 <= attempts <= 20):
+            errors.append('最大尝试次数需在 1-20 之间')
+
+        if errors:
+            for error in errors:
+                messages.error(request, error)
+            return redirect('examination:exam-create')
+
+        exam = Exam.objects.create(
+            title=title,
+            description=description,
+            duration_minutes=duration,
+            passing_score=passing,
+            max_attempts=attempts,
+            is_published=False,  # new exams start as drafts
+            show_results_immediately=request.POST.get('show_results_immediately') == 'on',
+            randomize_questions=request.POST.get('randomize_questions') == 'on',
+            created_by=request.user,
+        )
+        messages.success(
+            request, f'考试《{exam.title}》已创建（草稿）——添加题目并审核后发布')
+        return redirect('examination:exam-manage')
+
+    return render(request, 'examination/exam_form.html')
+
+
+@login_required
+@require_http_methods(["POST"])
+@rate_limit('exam_ai_generate', limit=20, window_seconds=3600)
+def exam_ai_generate(request, pk):
+    """Kick off AI generation of a full exam's questions (ExamSkill,
+    two-phase). The exam row must exist and be empty; generation runs via
+    Celery (inline in dev eager mode) with frontend polling."""
+    exam = get_object_or_404(Exam, pk=pk)
+    if not (request.user == exam.created_by or request.user.is_staff):
+        return JsonResponse({'success': False, 'error': 'Permission denied'}, status=403)
+
+    if exam.questions.exists():
+        return JsonResponse({
+            'success': False,
+            'error': '该考试已有题目。请新建一个空考试，或清空后再生成'
+        }, status=400)
+
+    try:
+        data = json.loads(request.body or '{}')
+        count = int(data.get('count', 10))
+        difficulty = data.get('difficulty', 'intermediate')
+        topic = (data.get('topic') or '').strip()
+    except (TypeError, ValueError):
+        return JsonResponse({'success': False, 'error': '参数无效'}, status=400)
+
+    from apps.ai_agents.skills.exam_skill import MAX_QUESTIONS
+    count = max(1, min(count, MAX_QUESTIONS))
+    if difficulty not in ('beginner', 'intermediate', 'advanced'):
+        difficulty = 'intermediate'
+
+    from apps.ai_agents.ai_config import is_configured
+    if not is_configured():
+        return JsonResponse({'success': False, 'error': 'AI 服务未配置（缺少 API 密钥）'}, status=400)
+
+    from celery import current_app
+    from .tasks import generate_exam_questions_task
+
+    generate_exam_questions_task.delay(exam.id, count=count,
+                                       difficulty=difficulty, topic=topic)
+    if current_app.conf.task_always_eager:
+        from .tasks import exam_gen_status
+        status = exam_gen_status(exam.id)
+        return JsonResponse({
+            'success': True, 'queued': False,
+            'status': status,
+            'message': '已生成' if status.get('status') == 'done' else '生成失败，请重试',
+        })
+    return JsonResponse({
+        'success': True, 'queued': True,
+        'message': '生成任务已提交，前端将轮询进度',
+    })
+
+
+@login_required
+@require_http_methods(["GET"])
+def exam_ai_status(request, pk):
+    """Poll AI exam-generation progress (async mode)."""
+    exam = get_object_or_404(Exam, pk=pk)
+    if not (request.user == exam.created_by or request.user.is_staff):
+        return JsonResponse({'success': False, 'error': 'Permission denied'}, status=403)
+    from .tasks import exam_gen_status
+    status = exam_gen_status(exam.id)
+    if status.get('status') == 'done':
+        status['question_count'] = exam.questions.count()
+    return JsonResponse({'success': True, 'status': status})
+
+
+@login_required
 @require_http_methods(["POST"])
 def exam_publish(request, pk):
     """Publish/unpublish an exam (creator or staff)."""
@@ -452,7 +586,7 @@ def exam_publish(request, pk):
 
 @login_required
 @require_http_methods(["POST"])
-@rate_limit('question_ai_modify', limit=30, window_seconds=3600)
+@rate_limit('question_ai_modify', limit=20, window_seconds=3600)
 def question_ai_modify(request, pk):
     """AI-assisted exam question modification (skill mode).
 

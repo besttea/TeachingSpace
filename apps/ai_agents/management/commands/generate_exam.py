@@ -11,10 +11,8 @@ Usage:
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.accounts.models import User
-from apps.examination.models import (
-    CodeQuestion, EssayQuestion, Exam, MultipleChoiceQuestion,
-    Question, TrueFalseQuestion,
-)
+from apps.examination.exam_assembly import save_generated_questions
+from apps.examination.models import Exam
 from apps.learning.models import Course
 
 
@@ -68,56 +66,10 @@ class Command(BaseCommand):
             created_by=creator,
         )
 
-        saved = 0
-        for i, q in enumerate(questions):
-            q_type = q.get('type')
-            if q_type not in dict(Question.QUESTION_TYPES):
-                self.stdout.write(self.style.WARNING(
-                    f'Question {i + 1}: unknown type {q_type!r} — skipped'))
-                continue
-            try:
-                question = Question.objects.create(
-                    exam=exam,
-                    question_type=q_type,
-                    question_text=q.get('text', ''),
-                    points=int(q.get('points', 10)),
-                    difficulty='medium',
-                    order=i,
-                )
-                if q_type == 'multiple_choice':
-                    MultipleChoiceQuestion.objects.create(
-                        question=question,
-                        options=q.get('options', {}),
-                        correct_answer=q.get('correct_answer', 'A'),
-                        explanation=q.get('explanation', ''),
-                    )
-                elif q_type == 'true_false':
-                    TrueFalseQuestion.objects.create(
-                        question=question,
-                        correct_answer=bool(q.get('correct_answer', False)),
-                        explanation=q.get('explanation', ''),
-                    )
-                elif q_type == 'code':
-                    CodeQuestion.objects.create(
-                        question=question,
-                        starter_code=q.get('starter_code', ''),
-                        solution_code=q.get('solution_code', ''),
-                        test_cases=q.get('test_cases', []),
-                        explanation=q.get('explanation', ''),
-                    )
-                elif q_type == 'essay':
-                    EssayQuestion.objects.create(
-                        question=question,
-                        word_limit=int(q.get('word_limit') or 0),
-                        rubric=q.get('rubric', ''),
-                        sample_answer=q.get('sample_answer', ''),
-                    )
-                saved += 1
-            except Exception as e:
-                self.stdout.write(self.style.WARNING(f'Question {i + 1} failed: {e}'))
-
+        summary = save_generated_questions(exam, questions)
         self.stdout.write(self.style.SUCCESS(
-            f'Created exam "{exam.title}" (id={exam.id}) with {saved} questions — '
+            f'Created exam "{exam.title}" (id={exam.id}) with '
+            f'{summary["saved"]} questions ({summary["skipped"]} skipped) — '
             f'status: DRAFT. Review and publish it in the admin.'
         ))
 

@@ -7,9 +7,12 @@ urlpatterns = [
     # Exam list and detail
     path('', views.ExamListView.as_view(), name='exam-list'),
     path('manage/', views.InstructorExamListView.as_view(), name='exam-manage'),
+    path('manage/create/', views.exam_create, name='exam-create'),
     path('manage/<int:pk>/review/', views.ExamReviewView.as_view(), name='exam-review'),
     path('api/answers/<int:pk>/grade/', views.exam_review_grade, name='answer-grade'),
     path('api/<int:pk>/publish/', views.exam_publish, name='exam-publish'),
+    path('api/<int:pk>/ai-generate/', views.exam_ai_generate, name='exam-ai-generate'),
+    path('api/<int:pk>/ai-status/', views.exam_ai_status, name='exam-ai-status'),
     path('api/questions/<int:pk>/ai-modify/', views.question_ai_modify, name='question-ai-modify'),
     path('manage/questions/<int:pk>/edit/', views.question_edit, name='question-edit'),
     path('<int:pk>/', views.ExamDetailView.as_view(), name='exam-detail'),
