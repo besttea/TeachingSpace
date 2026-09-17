@@ -252,6 +252,7 @@ BaseAgent（薄适配层，API 不变 + role 参数）
 
 `apps/core/notebook_parser.py`（纯标准库，无 Django 依赖）是 ClassLib `*.ipynb` 解析的唯一实现：
 
+- **目录约定（2026-09-17 起）**：`ClassLib/<分类>/<notebook>.ipynb`——同一课程系列归入一个分类子目录（现有七课在 `Python基础程序设计/`）；新增素材按类别新建子目录。所有扫描器（`notebook_tools._iter_classlib_notebooks`、`ai_service.get_available_resources`）递归遍历，工具展示名携带分类前缀（如 `Python基础程序设计/第一课_基本数据结构.ipynb`）；裸文件名仍可唯一匹配解析，`../` 穿越依旧被白名单拦截。
 - 结构识别：`第X章`（支持中文数字）→ 章节；`X.Y 标题` → 课程单元边界；`X.Y.Z` → 小节；
 - 噪音打标：LaTeX 符号表、粘贴的插件 README、`!pip` 单元格、目录链接、空单元格、`###` 残留——`--format cells` 默认剔除；
 - CLI 四格式：`digest`（AI 友好结构摘要）/ `json` / `sections` / `cells`（可直接入 Cell 表）。

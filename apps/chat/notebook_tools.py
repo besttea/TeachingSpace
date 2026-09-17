@@ -92,18 +92,61 @@ def _classlib_dir() -> str:
     return os.path.join(settings.BASE_DIR, "ClassLib")
 
 
+def _iter_classlib_notebooks():
+    """Yield (display_name, full_path) for every .ipynb under ClassLib/.
+
+    ClassLib is organized as <category>/<notebook>.ipynb (categories make
+    it easy to add new material series); display_name is the path relative
+    to ClassLib with forward slashes, e.g. 'Python基础程序设计/第一课.ipynb'.
+    """
+    classlib_dir = _classlib_dir()
+    if not os.path.isdir(classlib_dir):
+        return
+    for root, dirs, files in os.walk(classlib_dir):
+        dirs.sort()
+        for filename in sorted(files):
+            if not filename.endswith('.ipynb'):
+                continue
+            full_path = os.path.join(root, filename)
+            display = os.path.relpath(full_path, classlib_dir).replace(os.sep, '/')
+            yield display, full_path
+
+
 def _resolve_notebook(filename: str) -> Optional[str]:
     """Whitelist-resolve a notebook name inside ClassLib.
 
-    Rejects anything that is not exactly the basename of an existing .ipynb
-    file in ClassLib (blocks ``../`` traversal and arbitrary file reads).
+    Accepts a bare basename (unique match required) or a category-relative
+    display name like 'Python基础程序设计/第一课.ipynb'. Rejects anything
+    that is not an actual .ipynb inside ClassLib (blocks ``../`` traversal
+    and arbitrary file reads).
     """
-    if not filename or os.path.basename(filename) != filename:
+    if not filename or not filename.endswith('.ipynb'):
         return None
-    path = os.path.join(_classlib_dir(), filename)
-    if not (filename.endswith(".ipynb") and os.path.isfile(path)):
+    normalized = filename.replace('\\', '/')
+    parts = [p for p in normalized.split('/') if p not in ('', '.')]
+    if not parts or '..' in parts:
         return None
-    return path
+
+    classlib_dir = _classlib_dir()
+    candidates = {display: path for display, path in _iter_classlib_notebooks()}
+    if len(parts) == 1:
+        matches = [path for display, path in candidates.items()
+                   if display.rsplit('/', 1)[-1] == parts[0]]
+        if len(matches) != 1:
+            return None  # ambiguous or missing — caller reports not found
+        path = matches[0]
+    else:
+        path = candidates.get('/'.join(parts))
+        if path is None:
+            return None
+
+    # Defense in depth: the resolved path must really live under ClassLib.
+    try:
+        if os.path.realpath(path).startswith(os.path.realpath(classlib_dir)):
+            return path
+    except OSError:
+        pass
+    return None
 
 
 def _section_error(doc: NotebookDoc, section: str) -> Dict[str, Any]:
@@ -115,24 +158,20 @@ def _section_error(doc: NotebookDoc, section: str) -> Dict[str, Any]:
 
 def list_notebooks() -> Dict[str, Any]:
     """List ClassLib notebooks with a per-notebook section overview."""
-    classlib_dir = _classlib_dir()
     notebooks = []
-    if os.path.isdir(classlib_dir):
-        for filename in sorted(os.listdir(classlib_dir)):
-            if not filename.endswith(".ipynb"):
-                continue
-            try:
-                doc = parse_notebook(os.path.join(classlib_dir, filename))
-            except (OSError, ValueError, json.JSONDecodeError):
-                continue
-            notebooks.append(
-                {
-                    "filename": filename,
-                    "title": doc.title,
-                    "stats": doc.stats(),
-                    "sections": [s.label for s in doc.sections],
-                }
-            )
+    for display, full_path in _iter_classlib_notebooks():
+        try:
+            doc = parse_notebook(full_path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        notebooks.append(
+            {
+                "filename": display,
+                "title": doc.title,
+                "stats": doc.stats(),
+                "sections": [s.label for s in doc.sections],
+            }
+        )
     return {"notebooks": notebooks}
 
 
@@ -209,11 +248,9 @@ def find_related_sections(query: str, max_sections: int = 3,
     tokens = [t for t in re.split(r'[\s，,、。;；:：/\\|]+', query) if len(t) >= 2]
     candidates = []  # (score, label, content)
 
-    for filename in sorted(os.listdir(classlib_dir)):
-        if not filename.endswith('.ipynb'):
-            continue
+    for display, full_path in _iter_classlib_notebooks():
         try:
-            doc = parse_notebook(os.path.join(classlib_dir, filename))
+            doc = parse_notebook(full_path)
         except (OSError, ValueError, json.JSONDecodeError):
             continue
         for section in doc.sections:
@@ -230,7 +267,7 @@ def find_related_sections(query: str, max_sections: int = 3,
             if score <= 0:
                 continue
             content = _section_content(doc, section.number) or ''
-            candidates.append((score, f'{filename} · {section.label}', content))
+            candidates.append((score, f'{display} · {section.label}', content))
 
     candidates.sort(key=lambda item: item[0], reverse=True)
     picked = candidates[:max_sections]

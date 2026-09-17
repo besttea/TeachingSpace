@@ -15,7 +15,8 @@ from .models import Cell, Chapter, Course, Lesson
 
 _CLASSLIB = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), 'ClassLib')
-NOTEBOOK_PATH = os.path.join(_CLASSLIB, '第一课_基本数据结构.ipynb')
+NOTEBOOK_PATH = os.path.join(
+    _CLASSLIB, 'Python基础程序设计', '第一课_基本数据结构.ipynb')
 
 
 def _make_instructor(username='teacher'):

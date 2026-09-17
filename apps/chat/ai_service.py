@@ -49,16 +49,21 @@ class ChatAIService:
 
     def get_available_resources(self) -> List[Dict[str, Any]]:
         """Get list of available learning resources (no filesystem paths —
-        filenames only, never sent to the LLM)."""
+        filenames only, never sent to the LLM). ClassLib is organized as
+        <category>/<notebook>; display names carry the category."""
         resources = []
         classlib_dir = os.path.join(settings.BASE_DIR, 'ClassLib')
 
-        if os.path.exists(classlib_dir):
-            for filename in os.listdir(classlib_dir):
-                if filename.endswith(('.ipynb', '.py', '.md')):
+        if os.path.isdir(classlib_dir):
+            for root, _dirs, files in os.walk(classlib_dir):
+                for filename in sorted(files):
+                    if not filename.endswith(('.ipynb', '.py', '.md')):
+                        continue
+                    display = os.path.relpath(
+                        os.path.join(root, filename), classlib_dir).replace(os.sep, '/')
                     resources.append({
-                        'filename': filename,
-                        'type': filename.split('.')[-1]
+                        'filename': display,
+                        'type': filename.split('.')[-1],
                     })
 
         # Also get resources from database

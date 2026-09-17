@@ -25,8 +25,8 @@ class Command(BaseCommand):
         parser.add_argument(
             '--notebook',
             type=str,
-            default='第一课_基本数据结构.ipynb',
-            help='Notebook filename in ClassLib directory'
+            default='Python基础程序设计/第一课_基本数据结构.ipynb',
+            help='Notebook path inside ClassLib (category/name.ipynb)'
         )
         parser.add_argument(
             '--instructor',

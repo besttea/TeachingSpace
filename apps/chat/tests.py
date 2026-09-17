@@ -14,7 +14,10 @@ from django.urls import reverse
 from apps.accounts.models import User
 
 from .ai_service import ChatAIService
-from .notebook_tools import execute_tool, get_notebook_digest, get_notebook_section, list_notebooks
+from .notebook_tools import (
+    execute_tool, find_related_sections, get_notebook_digest,
+    get_notebook_section, list_notebooks,
+)
 
 
 def _text_block(text):
@@ -48,8 +51,25 @@ class NotebookToolsTests(SimpleTestCase):
         notebooks = result['notebooks']
         self.assertGreaterEqual(len(notebooks), 1)
         first = notebooks[0]
-        self.assertEqual(first['filename'], '第一课_基本数据结构.ipynb')
+        # ClassLib is organized as <category>/<notebook>.ipynb — display
+        # names carry the category
+        self.assertEqual(first['filename'],
+                         'Python基础程序设计/第一课_基本数据结构.ipynb')
         self.assertTrue(any(s.startswith('1.1') for s in first['sections']))
+
+    def test_bare_basename_still_resolves(self):
+        result = get_notebook_digest('第一课_基本数据结构.ipynb')
+        self.assertIn('digest', result)
+        self.assertIn('1.1 数字常量', result['digest'])
+
+    def test_category_path_resolves(self):
+        result = get_notebook_digest(
+            'Python基础程序设计/第一课_基本数据结构.ipynb')
+        self.assertIn('digest', result)
+
+    def test_unknown_category_rejected(self):
+        result = get_notebook_digest('不存在的分类/第一课_基本数据结构.ipynb')
+        self.assertIn('error', result)
 
     def test_get_notebook_digest(self):
         result = get_notebook_digest('第一课_基本数据结构.ipynb')
@@ -76,6 +96,14 @@ class NotebookToolsTests(SimpleTestCase):
         self.assertIn('error', result)
         result = get_notebook_digest('does_not_exist.ipynb')
         self.assertIn('error', result)
+        # traversal dressed up as a category path must not escape either
+        result = get_notebook_section('../../manage.py', '1.1')
+        self.assertIn('error', result)
+
+    def test_related_sections_found_across_categories(self):
+        material = find_related_sections('标准数据类型')
+        self.assertIn('素材', material)
+        self.assertIn('Python基础程序设计', material)
 
     def test_execute_tool_unknown(self):
         result = execute_tool('rm_rf', {})
@@ -188,7 +216,8 @@ class InputLimitAndSuggestionsTests(TestCase):
         response_text = '根据《第一课》的 1.2 标准数据类型 一节，列表是可变的……'
         suggestions = service._extract_suggestions(response_text, [])
         self.assertTrue(any('1.2' in s['title'] for s in suggestions))
-        self.assertEqual(suggestions[0]['filename'], '第一课_基本数据结构.ipynb')
+        self.assertEqual(suggestions[0]['filename'],
+                         'Python基础程序设计/第一课_基本数据结构.ipynb')
 
 
 class ThinkingBlockCompatibilityTests(TestCase):
