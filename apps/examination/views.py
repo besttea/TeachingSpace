@@ -447,6 +447,13 @@ class InstructorExamListView(LoginRequiredMixin, TemplateView):
                 'essayquestion', 'truefalsequestion', 'knowledge_points'))
         ).order_by('-created_at')
         context['exams'] = exams
+        # Instructor personal preference for the AI-generate modal default
+        prefs = user.preferences or {}
+        try:
+            context['default_question_count'] = max(
+                1, min(int(prefs.get('default_exam_question_count', 10)), 30))
+        except (TypeError, ValueError):
+            context['default_question_count'] = 10
         return context
 
 

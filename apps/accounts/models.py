@@ -23,6 +23,10 @@ class User(AbstractUser):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Role-scoped personal preferences, editable on the web settings page
+    # (e.g. instructor defaults: difficulty/chapter count/question count;
+    # student toggles: heartbeat).
+    preferences = models.JSONField(default=dict, blank=True)
 
     class Meta:
         db_table = 'users'
@@ -61,3 +65,23 @@ class StudentProfile(models.Model):
 
     def __str__(self):
         return f"{self.user.username}'s Profile"
+
+
+class PlatformSetting(models.Model):
+    """Runtime-tunable platform parameter, editable from the web settings
+    page (role-gated). Layered above code defaults and env config:
+    DB > AI_SKILL_* env > settings > code defaults (see apps/core/settings_db.py).
+    """
+
+    key = models.CharField(max_length=120, unique=True)
+    value = models.JSONField(default=dict)
+    category = models.CharField(max_length=40, default='global')
+    description = models.CharField(max_length=300, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'platform_settings'
+        ordering = ['category', 'key']
+
+    def __str__(self):
+        return f'{self.key} = {self.value}'

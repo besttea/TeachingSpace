@@ -12,4 +12,5 @@ urlpatterns = [
     # User dashboard and profile
     path('dashboard/', views.dashboard_view, name='dashboard'),
     path('profile/', views.profile_view, name='profile'),
+    path('settings/', views.settings_view, name='settings'),
 ]

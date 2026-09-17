@@ -155,7 +155,7 @@
     async function aiGenerateFlow(examId, examTitle) {
         aiGenExamId = examId;
         document.getElementById('aiGenExamTitle').textContent = '考试：' + examTitle;
-        document.getElementById('aiGenCount').value = 10;
+        document.getElementById('aiGenCount').value = {{ default_question_count|default:10 }};
         document.getElementById('aiGenDifficulty').value = 'intermediate';
         const kpSection = document.getElementById('aiGenKpSection');
         const kpList = document.getElementById('aiGenKpList');

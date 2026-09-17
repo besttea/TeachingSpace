@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import User, StudentProfile
+from .models import PlatformSetting, StudentProfile, User
 
 
 @admin.register(User)
@@ -42,3 +42,11 @@ class StudentProfileAdmin(admin.ModelAdmin):
             'fields': ('total_points', 'total_exercises_completed', 'total_exams_passed', 'current_streak_days', 'longest_streak_days', 'last_activity_date')
         }),
     )
+
+
+@admin.register(PlatformSetting)
+class PlatformSettingAdmin(admin.ModelAdmin):
+    """Web-tunable platform parameters (usually edited via the settings page)."""
+    list_display = ('key', 'category', 'value', 'updated_at')
+    list_filter = ('category',)
+    search_fields = ('key', 'description')

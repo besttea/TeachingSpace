@@ -1,4 +1,5 @@
 from django.shortcuts import render, redirect
+from django.conf import settings
 from django.contrib.auth import login, authenticate, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.password_validation import validate_password
@@ -327,3 +328,151 @@ def profile_view(request):
         context['profile'] = request.user.student_profile
 
     return render(request, 'accounts/profile.html', context)
+
+
+# ---------------------------------------------------------------------------
+# 网页参数设置（分角色：学生个人偏好 / 教师生成默认值 + AI 旋钮 / 管理员全局）
+# ---------------------------------------------------------------------------
+
+_PERSONAL_PREF_KEYS = (
+    'default_difficulty',        # instructor: beginner/intermediate/advanced
+    'default_chapter_count',     # instructor: 1-10
+    'default_exam_question_count',  # instructor: 1-30
+    'heartbeat_enabled',         # student: bool (学习时长心跳)
+)
+
+# 管理员可编辑的全局限流条目（key → (label, 代码默认值)）
+_GLOBAL_RATE_DEFAULTS = {
+    'exercise_submit': (10, 60),
+    'kernel_execute': (60, 300),
+    'exercise_ai_draft': (20, 3600),
+    'exercise_ai_modify': (20, 3600),
+    'question_ai_modify': (20, 3600),
+    'lesson_ai_generate': (20, 3600),
+    'chapter_ai_plan': (20, 3600),
+    'exam_ai_generate': (20, 3600),
+    'kp_extract': (20, 3600),
+}
+
+_SKILL_NAMES = ('exam_generation', 'exercise_generation',
+                'course_design', 'knowledge_extraction')
+
+
+@login_required
+def settings_view(request):
+    """Role-gated web settings page.
+
+    - 学生: personal preferences only (heartbeat toggle)
+    - 教师: personal defaults + AI skill parameter JSONs (content tuning)
+    - 管理员: additionally global rate limits + AI daily cost limit
+    """
+    from apps.ai_agents.skill_config import DEFAULTS as SKILL_DEFAULTS
+    from apps.core.settings_db import (
+        get_platform_setting, set_platform_setting)
+
+    is_admin = request.user.is_staff
+    is_instructor = is_admin or request.user.user_type == 'instructor'
+    saved_message = None
+
+    if request.method == 'POST':
+        # ---- personal preferences (all roles) ----
+        prefs = dict(request.user.preferences or {})
+        if is_instructor:
+            difficulty = request.POST.get('default_difficulty')
+            if difficulty in ('beginner', 'intermediate', 'advanced'):
+                prefs['default_difficulty'] = difficulty
+            try:
+                prefs['default_chapter_count'] = max(
+                    1, min(int(request.POST.get('default_chapter_count', 3)), 10))
+            except (TypeError, ValueError):
+                prefs['default_chapter_count'] = 3
+            try:
+                prefs['default_exam_question_count'] = max(
+                    1, min(int(request.POST.get('default_exam_question_count', 10)), 30))
+            except (TypeError, ValueError):
+                prefs['default_exam_question_count'] = 10
+        else:
+            prefs['heartbeat_enabled'] = (
+                request.POST.get('heartbeat_enabled') == 'on')
+        request.user.preferences = prefs
+        request.user.save()
+
+        # ---- AI skill parameters (instructor + admin) ----
+        if is_instructor:
+            import json as _json
+            for name in _SKILL_NAMES:
+                raw = (request.POST.get(f'skill_{name}') or '').strip()
+                if not raw:
+                    set_platform_setting(f'ai_skill_params:{name}', {},
+                                         category='ai', description=f'{name} 参数')
+                    continue
+                try:
+                    parsed = _json.loads(raw)
+                    if not isinstance(parsed, dict):
+                        raise ValueError('必须是 JSON 对象')
+                except (ValueError, _json.JSONDecodeError) as e:
+                    messages.error(request, f'{name} 参数 JSON 格式错误：{e}')
+                    return redirect('accounts:settings')
+                set_platform_setting(f'ai_skill_params:{name}', parsed,
+                                     category='ai', description=f'{name} 参数')
+
+        # ---- global knobs (admin only) ----
+        if is_admin:
+            for key in _GLOBAL_RATE_DEFAULTS:
+                limit_raw = request.POST.get(f'rate_limit_{key}')
+                window_raw = request.POST.get(f'rate_window_{key}')
+                try:
+                    limit = max(1, int(limit_raw or 0))
+                    window = max(30, int(window_raw or 0))
+                except (TypeError, ValueError):
+                    continue
+                set_platform_setting(
+                    f'rate:{key}', {'limit': limit, 'window_seconds': window},
+                    category='rate', description='请求限流')
+            try:
+                cost = float(request.POST.get('ai_cost_limit_daily') or -1)
+                if cost >= 0:
+                    set_platform_setting('ai_cost_limit_daily', cost,
+                                         category='ai', description='AI 每日成本上限（USD）')
+            except (TypeError, ValueError):
+                pass
+
+        messages.success(request, '设置已保存')
+        return redirect('accounts:settings')
+
+    context = {
+        'is_admin': is_admin,
+        'is_instructor': is_instructor,
+        'prefs': dict(request.user.preferences or {}),
+        'saved_message': saved_message,
+    }
+
+    if is_instructor:
+        import json as _json
+        context['skill_rows'] = [
+            {
+                'name': name,
+                'current_json': _json.dumps(current, ensure_ascii=False)
+                if current else '',
+                'defaults': list(SKILL_DEFAULTS.get(name, {}).items()),
+            }
+            for name in _SKILL_NAMES
+            for current in [get_platform_setting(f'ai_skill_params:{name}', {})]
+        ]
+    if is_admin:
+        context['rate_rows'] = [
+            {
+                'key': key,
+                'default_limit': defaults[0],
+                'default_window': defaults[1],
+                'current_limit': current.get('limit', defaults[0]),
+                'current_window': current.get('window_seconds', defaults[1]),
+            }
+            for key, defaults in _GLOBAL_RATE_DEFAULTS.items()
+            for current in [get_platform_setting(f'rate:{key}', {})]
+        ]
+        context['ai_cost_current'] = get_platform_setting(
+            'ai_cost_limit_daily',
+            getattr(settings, 'AI_COST_LIMIT_DAILY', 50.0))
+
+    return render(request, 'accounts/settings.html', context)

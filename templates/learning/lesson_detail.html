@@ -398,7 +398,7 @@ function notebookViewer() {
             if (typeof renderMathBlocks !== 'undefined') {
                 renderMathBlocks(document);
             }
-            {% if enrollment %}
+            {% if enrollment and user.preferences.heartbeat_enabled is not False %}
             this.startHeartbeat();
             {% endif %}
 

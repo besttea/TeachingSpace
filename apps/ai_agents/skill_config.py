@@ -76,7 +76,12 @@ def _cast(value: str, like):
 
 
 def skill_params(name: str) -> dict:
-    """Effective parameters for one skill (layered, see module docstring)."""
+    """Effective parameters for one skill (layered, see module docstring).
+
+    Layering (highest wins): DB PlatformSetting ``ai_skill_params:<name>``
+    (web settings page) → per-knob env vars → AI_SKILL_PARAMS setting →
+    DEFAULTS in this file.
+    """
     if name not in DEFAULTS:
         # Skill name ↔ config key mismatch is a code bug (a skill silently
         # running with empty params would KeyError at first use) — surface
@@ -98,4 +103,18 @@ def skill_params(name: str) -> dict:
             params[key] = _cast(raw, params[key])
         except ValueError:
             pass  # malformed override: keep the previous layer's value
+
+    # Web-tunable DB layer (highest priority — the settings page wins).
+    try:
+        from apps.core.settings_db import get_platform_setting
+        db_override = get_platform_setting(f'ai_skill_params:{name}', {}) or {}
+        if isinstance(db_override, dict):
+            for key in list(params):
+                if key in db_override:
+                    try:
+                        params[key] = _cast(str(db_override[key]), params[key])
+                    except ValueError:
+                        pass  # malformed web value: keep the lower layer
+    except Exception as e:  # pragma: no cover — defensive, DB may be mid-migrate
+        logger.warning('skill_params(%s): DB layer unavailable: %s', name, e)
     return params

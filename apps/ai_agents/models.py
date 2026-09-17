@@ -70,8 +70,19 @@ def record_generation(agent, model, prompt, response='', input_tokens=0,
 
 
 def daily_cost_exceeded() -> bool:
-    """Whether today's recorded AI spend has hit the configured limit."""
+    """Whether today's recorded AI spend has hit the configured limit.
+
+    The limit layers: DB PlatformSetting 'ai_cost_limit_daily' (web settings
+    page, admin) over settings.AI_COST_LIMIT_DAILY (.env).
+    """
     limit = float(getattr(settings, 'AI_COST_LIMIT_DAILY', 50.0))
+    try:
+        from apps.core.settings_db import get_platform_setting
+        db_limit = get_platform_setting('ai_cost_limit_daily')
+        if db_limit is not None:
+            limit = float(db_limit)
+    except (TypeError, ValueError):
+        pass
     if limit <= 0:
         return False
     from django.utils import timezone

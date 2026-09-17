@@ -1,0 +1,138 @@
+{% extends 'base.html' %}
+
+{% block title %}设置 - Python Learning{% endblock %}
+
+{% block content %}
+<div class="container py-4" style="max-width: 900px;">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-gear"></i> 参数设置</h2>
+        <a href="{% url 'accounts:dashboard' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> 返回仪表盘
+        </a>
+    </div>
+
+    <form method="post">
+        {% csrf_token %}
+
+        <!-- 个人偏好（所有角色） -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-person"></i> 个人偏好</h5>
+            </div>
+            <div class="card-body">
+                {% if is_instructor %}
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">默认难度</label>
+                        <select class="form-select" name="default_difficulty">
+                            <option value="beginner" {% if prefs.default_difficulty == 'beginner' %}selected{% endif %}>初级</option>
+                            <option value="intermediate" {% if prefs.default_difficulty == 'intermediate' or not prefs.default_difficulty %}selected{% endif %}>中级</option>
+                            <option value="advanced" {% if prefs.default_difficulty == 'advanced' %}selected{% endif %}>高级</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">默认章节数（AI 课程大纲）</label>
+                        <input type="number" class="form-control" name="default_chapter_count"
+                               value="{{ prefs.default_chapter_count|default:3 }}" min="1" max="10">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">默认出题数（AI 考试整卷）</label>
+                        <input type="number" class="form-control" name="default_exam_question_count"
+                               value="{{ prefs.default_exam_question_count|default:10 }}" min="1" max="30">
+                    </div>
+                </div>
+                <div class="form-text">用于 AI 生成表单的预填默认值。</div>
+                {% else %}
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="heartbeat_enabled"
+                           name="heartbeat_enabled"
+                           {% if prefs.heartbeat_enabled is not False %}checked{% endif %}>
+                    <label class="form-check-label" for="heartbeat_enabled">
+                        学习时长心跳（记录每个课程单元的学习时长，用于进度统计）
+                    </label>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- AI 生成参数（教师 + 管理员） -->
+        {% if is_instructor %}
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-stars"></i> AI 生成参数（Skill 旋钮）</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">
+                    网页设置的优先级最高（覆盖 .env 与环境变量）；某组留空则恢复默认值。
+                    修改后即时生效于下一次生成。
+                </p>
+                {% for row in skill_rows %}
+                <div class="mb-3">
+                    <label class="form-label"><code>{{ row.name }}</code></label>
+                    <textarea class="form-control font-monospace" rows="4"
+                              name="skill_{{ row.name }}"
+                              placeholder='例如 {"temperature": 0.5, "max_tokens": 1200}'>{{ row.current_json }}</textarea>
+                    <div class="form-text">
+                        可调键：
+                        {% for key, value in row.defaults %}
+                        <code>{{ key }}</code>（默认 {{ value }}）{% if not forloop.last %}、{% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- 全局参数（仅管理员） -->
+        {% if is_admin %}
+        <div class="card shadow-sm mb-4 border-danger-subtle">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-shield-lock"></i> 全局参数（管理员）</h5>
+            </div>
+            <div class="card-body">
+                <h6 class="text-muted">请求限流（每用户；清空则用代码默认值）</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr><th>端点</th><th>次数上限</th><th>窗口（秒）</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for row in rate_rows %}
+                            <tr>
+                                <td><code>{{ row.key }}</code></td>
+                                <td style="width: 160px;">
+                                    <input type="number" class="form-control form-control-sm"
+                                           name="rate_limit_{{ row.key }}"
+                                           value="{{ row.current_limit }}" min="1">
+                                </td>
+                                <td style="width: 160px;">
+                                    <input type="number" class="form-control form-control-sm"
+                                           name="rate_window_{{ row.key }}"
+                                           value="{{ row.current_window }}" min="30">
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">AI 每日成本上限（USD，0 表示不限）</label>
+                        <input type="number" class="form-control" name="ai_cost_limit_daily"
+                               value="{{ ai_cost_current }}" min="0" step="0.01">
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="d-flex gap-2 mb-5">
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-lg"></i> 保存设置
+            </button>
+            <a href="{% url 'accounts:dashboard' %}" class="btn btn-outline-secondary">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
