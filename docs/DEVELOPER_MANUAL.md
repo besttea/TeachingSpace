@@ -1,6 +1,6 @@
 # Python 教学平台 — 程序员说明手册
 
-> 文档版本：v1.2.0 ｜ 适用代码库：TeachingSpace（2026-09）
+> 文档版本：v1.4.0 ｜ 适用代码库：TeachingSpace（2026-09）
 > 读者：平台开发与维护工程师
 
 ## 目录
@@ -60,7 +60,7 @@ video_generator  Manim 视频校验与渲染
 | 异步 | Celery + Redis（开发默认 eager 内联，无需 broker） |
 | 视频 | Manim Community（CLI 子进程渲染）+ FFmpeg |
 | PDF | reportlab（STSong-Light CID 中文字体，无需字体文件） |
-| 测试 | pytest + pytest-django（69 个测试） |
+| 测试 | pytest + pytest-cov（363 个测试，核心模块覆盖率 ≥80% CI 门禁，当前 85%） |
 
 ## 3. 目录结构
 

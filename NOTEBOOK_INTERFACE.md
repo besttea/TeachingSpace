@@ -1,4 +1,8 @@
-# Notebook-Style Interface
+# Notebook-Style Interface（历史文档，已归档）
+
+> ⚠️ 本文档为早期设计稿（v1.x 时代）。当前权威说明见
+> [docs/DEVELOPER_MANUAL.md](docs/DEVELOPER_MANUAL.md)（§6 核心系统设计）与
+> [docs/USER_MANUAL.md](docs/USER_MANUAL.md)（§3 学习课堂）。以下内容仅供参考。
 
 This document describes the Jupyter-style notebook interface used in the Learning Platform.
 

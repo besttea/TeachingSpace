@@ -526,7 +526,7 @@ Create a `.env` file based on `.env.example`:
   - ✅ Training agent (exercise generation with function-based test cases + hints, wired to `generate_exercises`)
   - ✅ Examination agent (question generation wired to `generate_exam` command AND the instructor web flow — `exam_create` form + per-exam「AI 生成题目」async button on the manage page, shared `exam_assembly.save_generated_questions`; drafts only; essay answers AI-graded on exam submit when an API key is configured, else `needs_review`)
   - ✅ Custom API base URL support
-  - ✅ 256 fast tests (sandbox escapes, grading, auth, permissions, XSS filter, AI tool loop, view/command coverage for examination/training/learning) + slow suite (real Manim render); core-module coverage gate ≥80% in CI — run via `pytest` or `manage.py test`
+  - ✅ 363 fast tests (sandbox escapes, grading, auth, permissions, XSS filter, AI tool loop, knowledge-point pipeline, view/command coverage for examination/training/learning) + slow suite (real Manim render); core-module coverage gate ≥80% in CI (currently 85%) — run via `pytest` or `manage.py test`
 
 **In Progress/Pending:**
 - ⏳ Frontend templates refinement
