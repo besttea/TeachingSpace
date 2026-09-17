@@ -9,6 +9,12 @@ from celery import shared_task
 logger = logging.getLogger(__name__)
 
 _STATUS_TTL = 3600
+_MAX_RETRIES = 2  # OPTIMIZATION_PLAN 2.3: retry + exponential backoff
+
+
+def _retry_countdown(retries: int) -> int:
+    """Exponential backoff: 5s, 10s (capped at 120s)."""
+    return min(120, 5 * 2 ** retries)
 
 
 def _status_key(lesson_id):
@@ -27,12 +33,13 @@ def course_design_status(course_id) -> dict:
     return cache.get(_design_status_key(course_id)) or {'status': 'none'}
 
 
-@shared_task
-def design_course_outline_task(course_id: int):
+@shared_task(bind=True, max_retries=_MAX_RETRIES)
+def design_course_outline_task(self, course_id: int):
     """AI-design a course outline (planner role) and create chapters+lessons.
 
     Runs after the course row exists; the create flow redirects to the
-    outline page which polls course_design_status.
+    outline page which polls course_design_status. Retried with exponential
+    backoff on transient failures (OPTIMIZATION_PLAN 2.3).
     """
     from apps.learning.models import Chapter, Course, Lesson
 
@@ -55,22 +62,26 @@ def design_course_outline_task(course_id: int):
         )
 
         created = 0
-        for chapter_index, chapter_data in enumerate(outline.get('chapters', [])):
-            chapter = Chapter.objects.create(
-                course=course,
-                title=chapter_data.get('title') or f'第{chapter_index + 1}章',
-                description=chapter_data.get('description', ''),
-                order=chapter_index,
-            )
-            for lesson_index, lesson_data in enumerate(chapter_data.get('lessons', [])):
-                Lesson.objects.create(
-                    chapter=chapter,
-                    title=lesson_data.get('title') or f'课程单元 {lesson_index + 1}',
-                    description=lesson_data.get('description', ''),
-                    status='draft',
-                    order=lesson_index,
+        # Atomic so a failed attempt cannot leave partial chapters behind
+        # (retries would otherwise duplicate rows).
+        from django.db import transaction
+        with transaction.atomic():
+            for chapter_index, chapter_data in enumerate(outline.get('chapters', [])):
+                chapter = Chapter.objects.create(
+                    course=course,
+                    title=chapter_data.get('title') or f'第{chapter_index + 1}章',
+                    description=chapter_data.get('description', ''),
+                    order=chapter_index,
                 )
-                created += 1
+                for lesson_index, lesson_data in enumerate(chapter_data.get('lessons', [])):
+                    Lesson.objects.create(
+                        chapter=chapter,
+                        title=lesson_data.get('title') or f'课程单元 {lesson_index + 1}',
+                        description=lesson_data.get('description', ''),
+                        status='draft',
+                        order=lesson_index,
+                    )
+                    created += 1
 
         cache.set(_design_status_key(course_id), {
             'status': 'done',
@@ -79,19 +90,29 @@ def design_course_outline_task(course_id: int):
             'grounded': bool(source_material),
         }, _STATUS_TTL)
     except Exception as e:
-        logger.exception('course design failed for course %s', course_id)
+        logger.warning('course design attempt %s failed: %s', self.request.retries + 1, e)
+        # Eager mode has no broker: a retry would just propagate the Retry
+        # exception into the calling view. Retries only exist with a broker.
+        if self.request.retries < self.max_retries and not self.request.is_eager:
+            cache.set(_design_status_key(course_id), {
+                'status': 'retrying',
+                'error': str(e)[:200],
+            }, _STATUS_TTL)
+            raise self.retry(exc=e, countdown=_retry_countdown(self.request.retries))
+        logger.exception('course design failed for course %s after retries', course_id)
         cache.set(_design_status_key(course_id), {
             'status': 'error',
             'error': str(e)[:200],
         }, _STATUS_TTL)
 
 
-@shared_task
-def generate_lesson_cells_task(lesson_id: int):
+@shared_task(bind=True, max_retries=_MAX_RETRIES)
+def generate_lesson_cells_task(self, lesson_id: int):
     """Generate a lesson's cells (two-phase harness pipeline) and save them.
 
     Progress is published to the cache for frontend polling; eager mode
-    (dev default) runs this inline.
+    (dev default) runs this inline. Retried with exponential backoff on
+    transient failures (OPTIMIZATION_PLAN 2.3).
     """
     from apps.learning.models import Cell, Lesson
 
@@ -139,7 +160,16 @@ def generate_lesson_cells_task(lesson_id: int):
             'grounded': bool(source_material),
         }, _STATUS_TTL)
     except Exception as e:
-        logger.exception('lesson generation failed for lesson %s', lesson_id)
+        logger.warning('lesson generation attempt %s failed: %s', self.request.retries + 1, e)
+        # Eager mode has no broker: a retry would just propagate the Retry
+        # exception into the calling view. Retries only exist with a broker.
+        if self.request.retries < self.max_retries and not self.request.is_eager:
+            cache.set(_status_key(lesson_id), {
+                'status': 'retrying',
+                'error': str(e)[:200],
+            }, _STATUS_TTL)
+            raise self.retry(exc=e, countdown=_retry_countdown(self.request.retries))
+        logger.exception('lesson generation failed for lesson %s after retries', lesson_id)
         cache.set(_status_key(lesson_id), {
             'status': 'error',
             'error': str(e)[:200],

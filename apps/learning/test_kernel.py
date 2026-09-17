@@ -5,12 +5,16 @@ kernel (deterministic, no cross-test state) and kernels are shut down in
 tearDown. Skips cleanly when jupyter_client is not installed.
 """
 
+import importlib.util
 import itertools
 import unittest
 
 from django.test import SimpleTestCase, override_settings
 
 from .jupyter_kernel import HAS_JUPYTER, manager
+
+# Local-backend kernels run in this venv: inline plots need matplotlib.
+HAS_MATPLOTLIB = importlib.util.find_spec('matplotlib') is not None
 
 _id_counter = itertools.count(910000)
 
@@ -46,6 +50,8 @@ class JupyterKernelTests(SimpleTestCase):
             o['text'] for o in result['outputs'] if o['type'] == 'stream')
         self.assertIn('123', stream_text)
 
+    @unittest.skipUnless(HAS_MATPLOTLIB,
+                         'matplotlib not installed (kernel cannot render inline plots)')
     def test_matplotlib_rich_output(self):
         # the session's inline backend (set at kernel startup) renders plots
         # as display_data — no manual backend switching

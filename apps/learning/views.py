@@ -3,7 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib import messages
 from django.views.generic import ListView, DetailView
-from django.http import HttpResponse, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.db import transaction
 from django.db.models import F, Q, Count, Prefetch
@@ -382,7 +382,7 @@ class CourseOutlineView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
 
 @login_required
 @require_http_methods(["POST"])
-@rate_limit('lesson_ai_generate', limit=30, window_seconds=3600)
+@rate_limit('lesson_ai_generate', limit=20, window_seconds=3600)
 def instructor_lesson_generate(request, pk):
     """AI-generate the cell content of one lesson, grounded in ClassLib
     material when a match exists. Instructor-only."""
@@ -432,7 +432,7 @@ def lesson_generate_status(request, pk):
 
 @login_required
 @require_http_methods(["POST"])
-@rate_limit('chapter_ai_plan', limit=30, window_seconds=3600)
+@rate_limit('chapter_ai_plan', limit=20, window_seconds=3600)
 def instructor_chapter_ai_plan(request, pk):
     """AI plans the lessons of one chapter (titles + descriptions), grounded
     in ClassLib material when available. Creates empty draft lessons."""
@@ -1008,6 +1008,8 @@ def kernel_execute(request, pk):
             'execution_count': result['execution_count'],
         })
 
+    except Http404:
+        raise
     except Exception as e:
         return _error_response(e)
 
@@ -1032,6 +1034,8 @@ def kernel_restart(request, pk):
             'message': '内核已重启，所有变量已清空'
         })
 
+    except Http404:
+        raise
     except Exception as e:
         return _error_response(e)
 
@@ -1056,6 +1060,7 @@ def lesson_heartbeat(request, pk):
     progress, _ = LessonProgress.objects.get_or_create(
         enrollment=enrollment, lesson=lesson)
     progress.add_time(seconds)
+    progress.refresh_from_db()  # add_time uses F() — instance value is stale
     return JsonResponse({'success': True, 'time_spent_seconds': progress.time_spent_seconds})
 
 
@@ -1085,5 +1090,7 @@ def mark_lesson_complete(request, pk):
             'course_progress': enrollment.progress_percentage
         })
 
+    except Http404:
+        raise
     except Exception as e:
         return _error_response(e)

@@ -1,0 +1,16 @@
+{% extends "admin/change_list.html" %}
+
+{% block content %}
+<div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:4px;padding:12px 16px;margin-bottom:16px;display:flex;gap:32px;flex-wrap:wrap;">
+    <div><strong>近 24 小时调用</strong>：{{ ai_24h_stats.total }} 次</div>
+    <div><strong>失败</strong>：{{ ai_24h_stats.failed }} 次
+        {% if ai_24h_stats.failure_rate_pct > 10 %}
+            <span style="color:#dc3545;">({{ ai_24h_stats.failure_rate_pct }}% ⚠)</span>
+        {% else %}
+            <span style="color:#198754;">({{ ai_24h_stats.failure_rate_pct }}%)</span>
+        {% endif %}
+    </div>
+    <div><strong>近 24 小时成本</strong>：${{ ai_24h_stats.cost_usd }}</div>
+</div>
+{{ block.super }}
+{% endblock %}

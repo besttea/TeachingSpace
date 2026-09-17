@@ -28,9 +28,19 @@ def generate_thumbnail(video_path: str, out_path: str, at_seconds: float = 1.0) 
         return False
 
 
-@shared_task
-def render_video_task(script_source, scene_name=None, quality='medium',
+@shared_task(bind=True, max_retries=1)
+def render_video_task(self, script_source, scene_name=None, quality='medium',
                       timeout=300):
-    """Celery wrapper for Manim rendering (eager inline without a broker)."""
-    return render_script(script_source, scene_name=scene_name,
-                         quality=quality, timeout=timeout)
+    """Celery wrapper for Manim rendering (eager inline without a broker).
+
+    Deterministic failures (script errors) are returned as-is; only render
+    timeouts are retried once — they can be transient machine load
+    (OPTIMIZATION_PLAN 2.3).
+    """
+    result = render_script(script_source, scene_name=scene_name,
+                           quality=quality, timeout=timeout)
+    if (not result.get('success') and '超时' in result.get('error', '')
+            and self.request.retries < self.max_retries
+            and not self.request.is_eager):
+        raise self.retry(countdown=30)
+    return result

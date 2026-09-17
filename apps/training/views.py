@@ -127,7 +127,7 @@ class ExerciseDetailView(LoginRequiredMixin, DetailView):
 
 @login_required
 @require_http_methods(["POST"])
-@rate_limit('exercise_submit', limit=20, window_seconds=300)
+@rate_limit('exercise_submit', limit=10, window_seconds=60)
 def submit_solution(request, slug):
     """Submit code solution for grading"""
     exercise = get_object_or_404(Exercise, slug=slug)
@@ -318,7 +318,7 @@ def exercise_delete(request, pk):
 
 @login_required
 @require_http_methods(["POST"])
-@rate_limit('exercise_ai_draft', limit=30, window_seconds=3600)
+@rate_limit('exercise_ai_draft', limit=20, window_seconds=3600)
 def exercise_ai_draft(request):
     """AI-generate an exercise draft for the create form (no DB save).
 
@@ -425,7 +425,7 @@ def exercise_create(request):
 
 @login_required
 @require_http_methods(["POST"])
-@rate_limit('exercise_ai_modify', limit=30, window_seconds=3600)
+@rate_limit('exercise_ai_modify', limit=20, window_seconds=3600)
 def exercise_ai_modify(request, pk):
     """AI-assisted exercise modification (skill mode).
 
@@ -536,10 +536,14 @@ def submission_history(request, slug):
 def submission_detail(request, pk):
     """View details of a specific submission.
 
-    Instructors/staff also see a plagiarism hint: max code similarity of
-    this submission vs other students' submissions of the same exercise.
+    Students may only open their own submissions; instructors/staff may open
+    any (they also see a plagiarism hint: max code similarity of this
+    submission vs other students' submissions of the same exercise).
     """
-    submission = get_object_or_404(Submission, pk=pk, student=request.user)
+    if request.user.is_staff or request.user.user_type == 'instructor':
+        submission = get_object_or_404(Submission, pk=pk)
+    else:
+        submission = get_object_or_404(Submission, pk=pk, student=request.user)
 
     context = {
         'submission': submission,
