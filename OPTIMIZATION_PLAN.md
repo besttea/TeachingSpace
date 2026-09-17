@@ -140,6 +140,7 @@
 | T29 | 部署手册缺备份/恢复 | 无数据备份方案 | P2 | ✅ 6.2 |
 | T30 | 无全栈 compose | 仅沙箱/内核两个镜像，无 app+db+redis+celery 编排 | P2 | ✅ 6.1 |
 | T31 | AI 模型选择受系统环境变量干扰 | 此前 `AI_MODEL` 系统变量覆盖 `.env` 造成困惑 | P1 | ✅ 1.3（`AI_ACTIVE_MODEL` + 优先级文档） |
+| T32 | 历史 git 提交中的 `ghp_` token | ClassLib 教学材料曾嵌入两个真实 GitHub PAT（已从 git 历史清洗，但 token 本身未撤销，视为已泄露）；本地备份 bundle（`TeachingSpace-history-backup.bundle`）仍含旧历史 | P1 | ⏳ **项目收尾处理**：① github.com/settings/tokens 撤销两个 token；② 确认推送无误后删除备份 bundle |
 
 ---
 
