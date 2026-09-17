@@ -117,6 +117,22 @@
         min-height: 100px;
     }
 
+    /* Jupyter-style cell selection (new cells insert after the selection) */
+    .cell {
+        border-left: 3px solid transparent;
+        padding-left: 0.75rem;
+        border-radius: 4px;
+        transition: border-color .15s, background-color .15s;
+        cursor: pointer;
+    }
+    .cell:hover {
+        border-left-color: #c8e6c9;
+    }
+    .cell.cell-selected {
+        border-left-color: #2e7d32;
+        background: #f0faf1;
+    }
+
     /* CodeMirror container (Jupyter-style code editing) */
     .cm-container .cm-editor {
         border: 1px solid #ced4da;
@@ -294,6 +310,9 @@
                 <i class="bi bi-camera-video"></i> Add Video Cell
             </button>
         </div>
+        <p class="text-center text-muted small mb-3">
+            点击单元格选中（绿色高亮）——新单元格将插入到所选单元格之后；再次点击取消选中（则追加到末尾）。
+        </p>
 
         <!-- Cells Container (Sortable) -->
         <div id="cells-container">
@@ -301,7 +320,9 @@
             <div class="cell"
                  data-cell-id="{{ cell.id }}"
                  data-cell-type="{{ cell.cell_type }}"
-                 data-order="{{ cell.order }}">
+                 data-order="{{ cell.order }}"
+                 @click="selectCell({{ cell.id }})"
+                 :class="{'cell-selected': isSelected({{ cell.id }})}">
 
                 <!-- Cell Toolbar -->
                 <div class="cell-toolbar">
@@ -556,6 +577,7 @@ function notebookEditor() {
         editingCell: null,
         cellData: {},
         cellType: '',
+        selectedCell: null,  // Jupyter-style: new cells insert after it
         execCounts: {},   // cellId -> last kernel execution count (In[n])
         // json_script escapes script-closing tags; parsed safely from a
         // dedicated script tag instead of inline JSON with |safe.
@@ -604,6 +626,14 @@ function notebookEditor() {
             return n ? 'In [' + n + ']:' : '';
         },
 
+        selectCell(cellId) {
+            this.selectedCell = (this.selectedCell === cellId) ? null : cellId;
+        },
+
+        isSelected(cellId) {
+            return this.selectedCell === cellId;
+        },
+
         renderMarkdown(markdown) {
             if (typeof renderMarkdownSafe !== 'undefined') {
                 const html = renderMarkdownSafe(markdown);
@@ -632,7 +662,15 @@ function notebookEditor() {
         },
 
         async addCell(cellType) {
-            const order = document.querySelectorAll('#cells-container .cell').length;
+            // Jupyter-style: a selected cell means "insert right after it";
+            // otherwise append at the end.
+            let order = document.querySelectorAll('#cells-container .cell').length;
+            if (this.selectedCell) {
+                const selected = this.cellsData.find(c => c.id === this.selectedCell);
+                if (selected) {
+                    order = selected.order + 1;
+                }
+            }
 
             try {
                 const response = await fetch('/learning/api/cells/create/', {
