@@ -19,11 +19,11 @@
         transition: border-color .15s;
     }
     .code-cell:hover {
-        border-left-color: #e0e0e0;
+        border-left-color: #c8e6c9;
     }
     .code-cell.cell-selected {
-        border-left-color: #0d6efd;
-        background: #f8faff;
+        border-left-color: #2e7d32;
+        background: #f0faf1;
     }
 
     .cell {
@@ -69,14 +69,18 @@
 
     .code-cell .execution-count {
         font-family: monospace;
-        color: #666;
+        color: #2e7d32;  /* Jupyter-light green prompt */
         font-size: 0.85rem;
+        font-weight: 600;
     }
 
     .code-cell .code-source {
         padding: 1rem;
-        background: #282c34;
-        color: #abb2bf;
+        background: #ffffff;
+        color: #24292f;
+        border: 1px solid #d8e2d8;
+        border-left: 3px solid #a5d6a7;
+        border-radius: 4px;
         font-family: 'Courier New', Consolas, Monaco, monospace;
         font-size: 0.9rem;
         overflow-x: auto;
@@ -91,7 +95,7 @@
 
     .code-cell .code-output {
         padding: 1rem;
-        background: #ffffff;
+        background: #f6fbf7;
         border-top: 1px solid #dee2e6;
         font-family: 'Courier New', monospace;
         font-size: 0.85rem;
@@ -101,7 +105,7 @@
     }
 
     .code-cell .code-output.success {
-        border-left: 4px solid #28a745;
+        border-left: 4px solid #2e7d32;
     }
 
     .code-cell .code-output.error {

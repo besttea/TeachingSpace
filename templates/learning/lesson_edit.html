@@ -130,10 +130,11 @@
 
     /* Jupyter-style prompts and outputs */
     .prompt-label {
-        color: #569cd6;
+        color: #2e7d32;
         font-family: 'Courier New', monospace;
         margin-right: 0.8rem;
         user-select: none;
+        font-weight: 600;
     }
     .cell-type-switch select {
         max-width: 260px;
@@ -142,8 +143,8 @@
     .code-output {
         margin: 0 0.5rem 0.5rem 0.5rem;
         padding: 0.6rem 1rem;
-        background: #f8f9fa;
-        border-left: 3px solid #198754;
+        background: #f6fbf7;
+        border-left: 3px solid #2e7d32;
         border-radius: 0 4px 4px 0;
         font-family: 'Courier New', monospace;
         font-size: 0.85rem;
@@ -160,7 +161,9 @@
     .cell-content pre {
         margin: 0;
         padding: 1rem;
-        background: #282c34;
+        background: #ffffff;
+        border: 1px solid #d8e2d8;
+        border-left: 3px solid #a5d6a7;
         border-radius: 4px;
         overflow-x: auto;
     }
@@ -174,7 +177,7 @@
         white-space: pre !important;
         word-wrap: normal !important;
         overflow-wrap: normal !important;
-        color: #abb2bf;
+        color: #24292f;
     }
 
     .add-cell-menu {
@@ -324,7 +327,7 @@
                     <div class="markdown-content" x-html="renderMarkdown(`{{ cell.data.markdown|escapejs_tick }}`)"></div>
 
                     {% elif cell.cell_type == 'code' %}
-                    <pre class="code-source-prompt" style="margin: 0; padding: 0.6rem 1rem; background: #282c34; border-radius: 4px; overflow-x: auto;"><span class="prompt-label" x-text="execLabel({{ cell.id }})"></span><code style="display: block; white-space: pre-wrap; word-break: break-word; font-family: 'Courier New', monospace; color: #abb2bf; line-height: 1.5;">{{ cell.data.source }}</code></pre>
+                    <pre class="code-source-prompt" style="margin: 0; padding: 0.6rem 1rem; background: #ffffff; border: 1px solid #d8e2d8; border-left: 3px solid #a5d6a7; border-radius: 4px; overflow-x: auto;"><span class="prompt-label" x-text="execLabel({{ cell.id }})"></span><code style="display: block; white-space: pre-wrap; word-break: break-word; font-family: 'Courier New', monospace; color: #24292f; line-height: 1.5;">{{ cell.data.source }}</code></pre>
 
                     {% elif cell.cell_type == 'image' %}
                     {% if cell.data.url %}
