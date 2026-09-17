@@ -13,9 +13,12 @@ wins over default, highest wins overall:
    tuning without touching .env JSON
 """
 
+import logging
 import os
 
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 DEFAULTS = {
     'exam_generation': {
@@ -74,6 +77,13 @@ def _cast(value: str, like):
 
 def skill_params(name: str) -> dict:
     """Effective parameters for one skill (layered, see module docstring)."""
+    if name not in DEFAULTS:
+        # Skill name ↔ config key mismatch is a code bug (a skill silently
+        # running with empty params would KeyError at first use) — surface
+        # it loudly instead.
+        logger.error(
+            'skill_params(%r): no defaults registered in DEFAULTS — '
+            'skill name and config key are out of sync (see DEFAULTS keys)', name)
     params = dict(DEFAULTS.get(name, {}))
 
     configured = getattr(settings, 'AI_SKILL_PARAMS', None) or {}

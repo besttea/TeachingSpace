@@ -57,6 +57,25 @@ class SkillParamsLayeringTests(SimpleTestCase):
             self.assertTrue(any('temperature' in k or 'max_tokens' in k
                                 for k in params), name)
 
+    def test_every_skill_class_resolves_its_params(self):
+        """Pins the skill.name ↔ DEFAULTS key alignment (a mismatch would
+        KeyError at first use — the course-outline failure incident)."""
+        from .skills import CourseSkill, ExamSkill, ExerciseSkill, KnowledgeSkill
+        expectations = {
+            CourseSkill: 'outline_temperature',
+            ExamSkill: 'plan_temperature',
+            ExerciseSkill: 'max_fix_attempts',
+            KnowledgeSkill: 'max_points_per_chapter',
+        }
+        for skill_cls, expected_key in expectations.items():
+            params = skill_cls().params
+            self.assertIn(expected_key, params, skill_cls.__name__)
+
+    def test_unknown_name_logs_and_returns_empty(self):
+        with self.assertLogs('apps.ai_agents.skill_config', level='ERROR'):
+            params = skill_params('not_a_registered_skill')
+        self.assertEqual(params, {})
+
 
 class ExamSkillDedupTests(TestCase):
     def setUp(self):

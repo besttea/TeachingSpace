@@ -37,7 +37,10 @@ class CourseSkill(Skill):
     description = 'AI 生成完整课程：大纲 → 章节规划 → 逐单元两阶段内容'
 
     def __init__(self):
-        self.params = skill_params(self.name)
+        # NOTE: the skill's config key is 'course_design' (skill_config
+        # DEFAULTS) — deliberately different from self.name; keep them in
+        # sync with the module docstring of skill_config.py.
+        self.params = skill_params('course_design')
 
     def run(self, topic, difficulty='beginner', chapter_count=3,
             source_material='', with_content=True) -> dict:
