@@ -539,33 +539,15 @@ function notebookEditor() {
         },
 
         renderMarkdown(markdown) {
-            if (typeof marked !== 'undefined' && markdown) {
-                let html = marked.parse(markdown);
-                // Sanitize raw HTML that marked passes through (XSS guard).
-                if (typeof DOMPurify !== 'undefined') {
-                    html = DOMPurify.sanitize(html);
+            if (typeof renderMarkdownSafe !== 'undefined') {
+                const html = renderMarkdownSafe(markdown);
+                if (typeof renderMathAfterMarkdown !== 'undefined') {
+                    renderMathAfterMarkdown('.markdown-preview, .markdown-content');
                 }
-                // To trigger math rendering, use a small timeout or $nextTick.
-                setTimeout(() => {
-                    if (typeof renderMathInElement !== 'undefined') {
-                        const previews = document.querySelectorAll('.markdown-preview');
-                        previews.forEach(el => {
-                            renderMathInElement(el, {
-                                delimiters: [
-                                    {left: '$$', right: '$$', display: true},
-                                    {left: '$', right: '$', display: false},
-                                    {left: '\\[', right: '\\]', display: true},
-                                    {left: '\\(', right: '\\)', display: false}
-                                ]
-                            });
-                        });
-                    }
-                }, 100);
-
                 return html;
             }
+            // Fallback without the shared pipeline: escape, never raw markdown
             if (markdown) {
-                // No renderer available: return escaped TEXT, never raw markdown.
                 return markdown
                     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             }

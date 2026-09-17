@@ -391,16 +391,12 @@ function notebookViewer() {
         execCounts: {},       // cellId -> last kernel execution count (In[n])
 
         init() {
-            // Render KaTeX math
-            if (typeof renderMathInElement !== 'undefined') {
-                renderMathInElement(document.body, {
-                    delimiters: [
-                        {left: '$$', right: '$$', display: true},
-                        {left: '$', right: '$', display: false},
-                        {left: '\\[', right: '\\]', display: true},
-                        {left: '\\(', right: '\\)', display: false}
-                    ]
-                });
+            // Static math placeholders (if any) — content math renders
+            // through the protected markdown pipeline instead of raw
+            // delimiter scanning (a lone $ or unsupported command would
+            // otherwise break the whole page).
+            if (typeof renderMathBlocks !== 'undefined') {
+                renderMathBlocks(document);
             }
             {% if enrollment %}
             this.startHeartbeat();
@@ -430,16 +426,15 @@ function notebookViewer() {
         },
 
         renderMarkdown(markdown) {
-            if (typeof marked !== 'undefined' && markdown) {
-                let html = marked.parse(markdown);
-                // Sanitize raw HTML that marked passes through (XSS guard).
-                if (typeof DOMPurify !== 'undefined') {
-                    html = DOMPurify.sanitize(html);
+            if (typeof renderMarkdownSafe !== 'undefined') {
+                const html = renderMarkdownSafe(markdown);
+                if (typeof renderMathAfterMarkdown !== 'undefined') {
+                    renderMathAfterMarkdown('.markdown-content, .math-block');
                 }
                 return html;
             }
+            // Fallback without the shared pipeline: escape, never raw markdown
             if (markdown) {
-                // No renderer available: return escaped TEXT, never raw markdown.
                 return markdown
                     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             }
