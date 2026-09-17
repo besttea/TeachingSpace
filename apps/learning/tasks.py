@@ -293,3 +293,81 @@ def extract_knowledge_points_task(self, course_id: int):
             'status': 'error',
             'error': str(e)[:200],
         }, _STATUS_TTL)
+
+
+def _cell_video_status_key(cell_id):
+    return f'cell_video_status:{cell_id}'
+
+
+def cell_video_status(cell_id) -> dict:
+    return cache.get(_cell_video_status_key(cell_id)) or {'status': 'none'}
+
+
+@shared_task(bind=True, max_retries=_MAX_RETRIES)
+def generate_cell_video_task(self, cell_id: int, topic: str):
+    """Text-to-animation for a video cell: VideoSkill script -> Manim
+    render (async) -> fill the cell's url + create a Video record."""
+    from apps.learning.models import Cell, Video
+
+    cell = Cell.objects.filter(pk=cell_id).first()
+    if cell is None:
+        return
+
+    cache.set(_cell_video_status_key(cell_id), {'status': 'running'}, _STATUS_TTL)
+    try:
+        from apps.ai_agents.skills import VideoSkill
+        from apps.ai_agents.skill_config import skill_params
+        from apps.video_generator.manim_engine import render_script
+
+        params = skill_params('video_generation')
+        result = VideoSkill().run(
+            topic,
+            difficulty=cell.lesson.chapter.course.difficulty_level,
+            duration=params['default_duration'])
+        script = result.get('script', '')
+        if not script:
+            raise ValueError('AI 未能生成有效的 Manim 脚本')
+
+        rendered = render_script(
+            script, quality=params['render_quality'],
+            timeout=params['render_timeout'])
+        if not rendered.get('success'):
+            raise ValueError(rendered.get('error', '渲染失败'))
+
+        video_path = rendered['video_path']
+        from django.conf import settings
+        import os
+        rel = os.path.relpath(video_path, settings.MEDIA_ROOT).replace(os.sep, '/')
+        url = f'{settings.MEDIA_URL}{rel}'
+
+        cell.data['url'] = url
+        cell.data['source_type'] = 'manim_generated'
+        cell.data['caption'] = topic[:200]
+        cell.save()
+
+        Video.objects.create(
+            lesson=cell.lesson, cell=cell, title=topic[:200],
+            source_type='manim_generated', manim_script=script,
+            generation_status='completed')
+        Video.objects.filter(lesson=cell.lesson, cell=cell).update(
+            video_file=rel)
+
+        cache.set(_cell_video_status_key(cell_id), {
+            'status': 'done',
+            'url': url,
+            'duration_ms': rendered.get('duration_ms'),
+        }, _STATUS_TTL)
+    except Exception as e:
+        logger.warning('cell video attempt %s failed: %s',
+                       self.request.retries + 1, e)
+        if self.request.retries < self.max_retries and not self.request.is_eager:
+            cache.set(_cell_video_status_key(cell_id), {
+                'status': 'retrying',
+                'error': str(e)[:200],
+            }, _STATUS_TTL)
+            raise self.retry(exc=e, countdown=_retry_countdown(self.request.retries))
+        logger.exception('cell video failed for cell %s after retries', cell_id)
+        cache.set(_cell_video_status_key(cell_id), {
+            'status': 'error',
+            'error': str(e)[:200],
+        }, _STATUS_TTL)

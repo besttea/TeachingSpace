@@ -49,6 +49,14 @@ urlpatterns = [
     path('api/knowledge-points/<int:pk>/update/', views.kp_update, name='kp-update'),
     path('api/knowledge-points/<int:pk>/delete/', views.kp_delete, name='kp-delete'),
 
+    # Cell-level AI generation (lesson editor toolbar — four skills)
+    path('api/cells/<int:pk>/ai-text/', views.cell_ai_text, name='cell-ai-text'),
+    path('api/cells/<int:pk>/ai-code/', views.cell_ai_code, name='cell-ai-code'),
+    path('api/cells/<int:pk>/ai-image/', views.cell_ai_image, name='cell-ai-image'),
+    path('api/cells/<int:pk>/ai-video/', views.cell_ai_video, name='cell-ai-video'),
+    path('api/cells/<int:pk>/video-status/', views.cell_video_status_view,
+         name='cell-video-status'),
+
     # Jupyter kernel sessions (real notebook execution)
     path('api/lessons/<int:pk>/kernel/execute/', views.kernel_execute, name='kernel-execute'),
     path('api/lessons/<int:pk>/kernel/restart/', views.kernel_restart, name='kernel-restart'),

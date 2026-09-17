@@ -264,7 +264,13 @@
                 </h1>
                 <p class="text-muted">Drag cells to reorder | Click to edit</p>
             </div>
-            <div>
+            <div class="d-flex align-items-center gap-2">
+                <span id="lessonGenBadge" class="small text-muted"></span>
+                <button class="btn btn-sm btn-outline-success"
+                        onclick="generateLessonContent()"
+                        title="AI 生成整课内容（文本+代码单元格，覆盖现有内容）">
+                    <i class="bi bi-stars"></i> AI 生成课程内容
+                </button>
                 <a href="{% url 'learning:lesson-detail' pk=lesson.pk %}" class="btn btn-outline-secondary">
                     <i class="bi bi-eye"></i> Preview
                 </a>
@@ -366,6 +372,14 @@
                     {% if cell.cell_type == 'text' %}
                     <div class="form-group">
                         <label>Markdown Content:</label>
+                        <div class="input-group mb-2">
+                            <input type="text" class="form-control form-control-sm"
+                                   id="aiTopic{{ cell.id }}" placeholder="AI 生成内容：输入本单元格主题，如「列表与元组的区别」">
+                            <button class="btn btn-sm btn-outline-success" type="button"
+                                    onclick="aiCellText({{ cell.id }})">
+                                <i class="bi bi-stars"></i> AI 生成
+                            </button>
+                        </div>
                         <textarea
                             class="form-control"
                             x-model="cellData.markdown"
@@ -379,6 +393,14 @@
                     {% elif cell.cell_type == 'code' %}
                     <div class="form-group">
                         <label>Python Code: <small class="text-muted">（Ctrl+Enter 保存 ｜ Shift+Enter 运行）</small></label>
+                        <div class="input-group mb-2">
+                            <input type="text" class="form-control form-control-sm"
+                                   id="aiTopic{{ cell.id }}" placeholder="AI 生成代码：输入主题，如「字典推导式」">
+                            <button class="btn btn-sm btn-outline-success" type="button"
+                                    onclick="aiCellCode({{ cell.id }})">
+                                <i class="bi bi-stars"></i> AI 生成
+                            </button>
+                        </div>
                         <textarea class="form-control d-none" x-model="cellData.source"></textarea>
                         <div class="cm-container" x-codemirror="cellData.source"></div>
                     </div>
@@ -386,6 +408,15 @@
                     {% elif cell.cell_type == 'image' %}
                     <div class="form-group">
                         <label>Image URL:</label>
+                        <div class="input-group mb-2">
+                            <input type="text" class="form-control form-control-sm"
+                                   id="aiImageDesc{{ cell.id }}" placeholder="AI 文生图：描述画面，如「斐波那契螺旋与黄金矩形」">
+                            <button class="btn btn-sm btn-outline-success" type="button"
+                                    id="aiImageBtn{{ cell.id }}"
+                                    onclick="aiCellImage({{ cell.id }})">
+                                <i class="bi bi-stars"></i> AI 生成配图
+                            </button>
+                        </div>
                         <input type="text" class="form-control" x-model="cellData.url" placeholder="https://...">
                     </div>
                     <div class="form-group">
@@ -400,6 +431,16 @@
                     {% elif cell.cell_type == 'video' %}
                     <div class="form-group">
                         <label>Video Source Type:</label>
+                        <div class="input-group mb-2">
+                            <input type="text" class="form-control form-control-sm"
+                                   id="aiVideoTopic{{ cell.id }}" placeholder="AI 文生动画：输入主题，如「梯度下降」">
+                            <button class="btn btn-sm btn-outline-success" type="button"
+                                    id="aiVideoBtn{{ cell.id }}"
+                                    onclick="aiCellVideo({{ cell.id }})">
+                                <i class="bi bi-stars"></i> AI 生成动画
+                            </button>
+                            <span id="aiVideoBadge{{ cell.id }}" class="input-group-text small text-muted"></span>
+                        </div>
                         <select class="form-control" x-model="cellData.source_type">
                             <option value="youtube">YouTube</option>
                             <option value="vimeo">Vimeo</option>
@@ -852,6 +893,194 @@ function notebookEditor() {
 
     function escapeHtml(text) {
         return String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // ---- AI 工具条：整课内容生成 + 四类单元格生成（Text/Code/Image/Video skills）----
+
+    async function generateLessonContent() {
+        if (!confirm('AI 生成整课内容（文本+代码单元格）将覆盖本单元现有全部内容，确定继续？')) return;
+        const badge = document.getElementById('lessonGenBadge');
+        badge.textContent = '⏳ 生成中…';
+        try {
+            const resp = await fetch(`/learning/api/lessons/{{ lesson.id }}/ai-generate/`, {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+                body: JSON.stringify({})
+            });
+            const data = await resp.json();
+            if (!data.success) {
+                badge.textContent = '';
+                alert('生成失败: ' + (data.error || '请确认已配置 AI 密钥'));
+                return;
+            }
+            if (data.queued) {
+                await pollLessonGen(badge);
+            } else {
+                badge.textContent = '';
+                location.reload();
+            }
+        } catch (e) {
+            badge.textContent = '';
+            alert('请求失败，请重试');
+        }
+    }
+
+    async function pollLessonGen(badge) {
+        for (let i = 0; i < 120; i++) {
+            await new Promise(r => setTimeout(r, 3000));
+            try {
+                const resp = await fetch(`/learning/api/lessons/{{ lesson.id }}/generate-status/`);
+                const data = await resp.json();
+                const status = (data.status || {}).status;
+                if (status === 'done') { badge.textContent = ''; location.reload(); return; }
+                if (status === 'error') {
+                    badge.textContent = '';
+                    alert('生成失败: ' + ((data.status || {}).error || '请重试'));
+                    return;
+                }
+                if (status === 'retrying') badge.textContent = '⏳ 生成中（重试）…';
+            } catch (e) { /* transient — keep polling */ }
+        }
+        badge.textContent = '';
+        alert('生成超时，请刷新页面查看进度');
+    }
+
+    function aiCellText(cellId) {
+        const topic = document.getElementById('aiTopic' + cellId).value.trim();
+        if (!topic) { alert('请先输入主题'); return; }
+        fetch(`/learning/api/cells/${cellId}/ai-text/`, {
+            method: 'POST',
+            headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+            body: JSON.stringify({topic: topic})
+        }).then(r => r.json()).then(data => {
+            if (data.success) {
+                document.querySelector(`[data-cell-id="${cellId}"] .cell-editor textarea[x-model="cellData.markdown"]`).value = data.content;
+                document.querySelector(`[data-cell-id="${cellId}"] .cell-editor textarea`).dispatchEvent(new Event('input'));
+                alert('已生成文本内容——检查后保存');
+            } else {
+                alert('生成失败: ' + (data.error || '请重试'));
+            }
+        });
+    }
+
+    function aiCellCode(cellId) {
+        const topic = document.getElementById('aiTopic' + cellId).value.trim();
+        if (!topic) { alert('请先输入主题'); return; }
+        fetch(`/learning/api/cells/${cellId}/ai-code/`, {
+            method: 'POST',
+            headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+            body: JSON.stringify({topic: topic})
+        }).then(r => r.json()).then(data => {
+            if (data.success) {
+                // 通过隐藏 textarea 的 x-model 写回 Alpine 状态，CodeMirror 自动同步
+                const hidden = document.querySelector(`[data-cell-id="${cellId}"] textarea[x-model="cellData.source"]`);
+                hidden.value = data.content;
+                hidden.dispatchEvent(new Event('input'));
+                alert('已生成代码——检查后保存');
+            } else {
+                alert('生成失败: ' + (data.error || '请重试'));
+            }
+        });
+    }
+
+    async function aiCellImage(cellId) {
+        const description = document.getElementById('aiImageDesc' + cellId).value.trim();
+        if (!description) { alert('请先描述画面内容'); return; }
+        const btn = document.getElementById('aiImageBtn' + cellId);
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 渲染中…（Manim 静帧）';
+        try {
+            const resp = await fetch(`/learning/api/cells/${cellId}/ai-image/`, {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+                body: JSON.stringify({description: description})
+            });
+            const data = await resp.json();
+            if (data.success) {
+                const cellEl = document.querySelector(`[data-cell-id="${cellId}"]`);
+                cellEl.querySelector('input[x-model="cellData.url"]').value = data.url;
+                cellEl.querySelector('input[x-model="cellData.url"]').dispatchEvent(new Event('input'));
+                if (data.caption) {
+                    cellEl.querySelector('input[x-model="cellData.caption"]').value = data.caption;
+                    cellEl.querySelector('input[x-model="cellData.caption"]').dispatchEvent(new Event('input'));
+                }
+                alert('配图已生成——检查后保存');
+            } else {
+                alert('生成失败: ' + (data.error || '请重试'));
+            }
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-stars"></i> AI 生成配图';
+        }
+    }
+
+    async function aiCellVideo(cellId) {
+        const topic = document.getElementById('aiVideoTopic' + cellId).value.trim();
+        if (!topic) { alert('请先输入动画主题'); return; }
+        const badge = document.getElementById('aiVideoBadge' + cellId);
+        const btn = document.getElementById('aiVideoBtn' + cellId);
+        btn.disabled = true;
+        badge.textContent = '⏳ 生成中…';
+        try {
+            const resp = await fetch(`/learning/api/cells/${cellId}/ai-video/`, {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+                body: JSON.stringify({topic: topic})
+            });
+            const data = await resp.json();
+            if (!data.success) {
+                badge.textContent = '';
+                alert('生成失败: ' + (data.error || '请确认已配置 AI 密钥'));
+                return;
+            }
+            if (data.queued) {
+                await pollCellVideo(cellId, badge);
+            } else {
+                finishCellVideo(cellId, data.status, badge);
+            }
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    async function pollCellVideo(cellId, badge) {
+        for (let i = 0; i < 120; i++) {
+            await new Promise(r => setTimeout(r, 3000));
+            try {
+                const resp = await fetch(`/learning/api/cells/${cellId}/video-status/`);
+                const data = await resp.json();
+                const status = (data.status || {}).status;
+                if (status === 'done') { finishCellVideo(cellId, data.status, badge); return; }
+                if (status === 'error') {
+                    badge.textContent = '';
+                    alert('动画生成失败: ' + ((data.status || {}).error || '请重试'));
+                    return;
+                }
+                if (status === 'retrying') badge.textContent = '⏳ 渲染中（重试）…';
+            } catch (e) { /* transient — keep polling */ }
+        }
+        badge.textContent = '';
+        alert('生成超时，请刷新页面查看进度');
+    }
+
+    function finishCellVideo(cellId, status, badge) {
+        badge.textContent = '';
+        if (!status || status.status !== 'done') {
+            alert('动画生成失败: ' + ((status || {}).error || '请重试'));
+            return;
+        }
+        const cellEl = document.querySelector(`[data-cell-id="${cellId}"]`);
+        const urlInput = cellEl.querySelector('input[x-model="cellData.url"]');
+        const typeSelect = cellEl.querySelector('select[x-model="cellData.source_type"]');
+        const captionInput = cellEl.querySelector('input[x-model="cellData.caption"]');
+        urlInput.value = status.url || '';
+        urlInput.dispatchEvent(new Event('input'));
+        if (typeSelect) { typeSelect.value = 'manim_generated'; typeSelect.dispatchEvent(new Event('input')); }
+        if (captionInput) {
+            captionInput.value = document.getElementById('aiVideoTopic' + cellId).value;
+            captionInput.dispatchEvent(new Event('input'));
+        }
+        alert('动画已生成——检查后保存');
     }
 </script>
 {% endblock %}

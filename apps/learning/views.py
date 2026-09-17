@@ -1320,3 +1320,155 @@ def kp_delete(request, pk):
     title = kp.title
     kp.delete()
     return _kp_response_ok({'message': f'已删除知识点《{title}》'})
+
+
+# ---------------------------------------------------------------------------
+# Cell-level AI generation (lesson editor AI toolbar — four skills)
+# ---------------------------------------------------------------------------
+
+
+def _cell_ai_guard(request, cell):
+    """Shared permission/config guard for cell AI endpoints."""
+    if not _can_edit_lesson(request.user, cell.lesson):
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    from apps.ai_agents.ai_config import is_configured
+    if not is_configured():
+        return JsonResponse({'error': 'AI 服务未配置（缺少 API 密钥）'}, status=400)
+    return None
+
+
+@login_required
+@require_http_methods(["POST"])
+@rate_limit('cell_ai_text', limit=20, window_seconds=3600)
+def cell_ai_text(request, pk):
+    """TextSkill: fill a text cell with AI-generated markdown."""
+    cell = get_object_or_404(Cell, pk=pk)
+    guard = _cell_ai_guard(request, cell)
+    if guard:
+        return guard
+    try:
+        data = json.loads(request.body or '{}')
+        topic = (data.get('topic') or '').strip()
+        context = (data.get('context') or '').strip()
+        if not topic:
+            return JsonResponse({'error': '请填写主题'}, status=400)
+        from apps.ai_agents.skills import TextSkill
+        result = TextSkill().run(topic, context=context)
+        if not result.get('content'):
+            return JsonResponse({'error': 'AI 返回内容为空，请重试'}, status=400)
+        return JsonResponse({'success': True, 'content': result['content']})
+    except Exception as e:
+        return _error_response(e)
+
+
+@login_required
+@require_http_methods(["POST"])
+@rate_limit('cell_ai_code', limit=20, window_seconds=3600)
+def cell_ai_code(request, pk):
+    """CodeSkill: fill a code cell with AI-generated Python."""
+    cell = get_object_or_404(Cell, pk=pk)
+    guard = _cell_ai_guard(request, cell)
+    if guard:
+        return guard
+    try:
+        data = json.loads(request.body or '{}')
+        topic = (data.get('topic') or '').strip()
+        context = (data.get('context') or '').strip()
+        if not topic:
+            return JsonResponse({'error': '请填写主题'}, status=400)
+        from apps.ai_agents.skills import CodeSkill
+        result = CodeSkill().run(topic, context=context)
+        if not result.get('content'):
+            return JsonResponse({'error': 'AI 返回内容为空，请重试'}, status=400)
+        return JsonResponse({'success': True, 'content': result['content']})
+    except Exception as e:
+        return _error_response(e)
+
+
+@login_required
+@require_http_methods(["POST"])
+@rate_limit('cell_ai_image', limit=20, window_seconds=3600)
+def cell_ai_image(request, pk):
+    """ImageSkill: text-to-image via a Manim still frame (synchronous)."""
+    cell = get_object_or_404(Cell, pk=pk)
+    guard = _cell_ai_guard(request, cell)
+    if guard:
+        return guard
+    try:
+        data = json.loads(request.body or '{}')
+        description = (data.get('description') or '').strip()
+        if not description:
+            return JsonResponse({'error': '请填写画面描述'}, status=400)
+
+        from apps.ai_agents.skills import ImageSkill
+        from apps.ai_agents.skill_config import skill_params
+        result = ImageSkill().run(description)
+        script = result.get('script', '')
+        if not script:
+            return JsonResponse({'error': 'AI 未能生成配图脚本，请重试'}, status=400)
+
+        from apps.video_generator.manim_engine import render_script
+        params = skill_params('image_generation')
+        rendered = render_script(script, still=True,
+                                 timeout=params['render_timeout'])
+        if not rendered.get('success'):
+            return JsonResponse(
+                {'error': rendered.get('error', '渲染失败')}, status=500)
+
+        import os
+        from django.conf import settings
+        rel = os.path.relpath(rendered['image_path'],
+                              settings.MEDIA_ROOT).replace(os.sep, '/')
+        url = f'{settings.MEDIA_URL}{rel}'
+        return JsonResponse({
+            'success': True,
+            'url': url,
+            'caption': description[:200],
+            'duration_ms': rendered.get('duration_ms'),
+        })
+    except Exception as e:
+        return _error_response(e)
+
+
+@login_required
+@require_http_methods(["POST"])
+@rate_limit('cell_ai_video', limit=20, window_seconds=3600)
+def cell_ai_video(request, pk):
+    """VideoSkill: text-to-animation (async Manim render + polling)."""
+    cell = get_object_or_404(Cell, pk=pk)
+    guard = _cell_ai_guard(request, cell)
+    if guard:
+        return guard
+    try:
+        data = json.loads(request.body or '{}')
+        topic = (data.get('topic') or '').strip()
+        if not topic:
+            return JsonResponse({'error': '请填写动画主题'}, status=400)
+
+        from celery import current_app
+        from .tasks import generate_cell_video_task
+
+        generate_cell_video_task.delay(cell.id, topic)
+        if current_app.conf.task_always_eager:
+            from .tasks import cell_video_status
+            return JsonResponse({
+                'success': True, 'queued': False,
+                'status': cell_video_status(cell.id),
+            })
+        return JsonResponse({
+            'success': True, 'queued': True,
+            'message': '动画渲染任务已提交，前端将轮询进度',
+        })
+    except Exception as e:
+        return _error_response(e)
+
+
+@login_required
+@require_http_methods(["GET"])
+def cell_video_status_view(request, pk):
+    """Poll the text-to-animation task for one video cell."""
+    cell = get_object_or_404(Cell, pk=pk)
+    if not _can_edit_lesson(request.user, cell.lesson):
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    from .tasks import cell_video_status
+    return JsonResponse({'success': True, 'status': cell_video_status(cell.id)})

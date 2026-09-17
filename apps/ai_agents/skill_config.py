@@ -61,6 +61,29 @@ DEFAULTS = {
         'dedup_enabled': True,
         'dedup_threshold': 0.85,
     },
+    # ---- cell-level generation (lesson editor AI toolbar) ----
+    'text_generation': {
+        'temperature': 0.5,
+        'max_tokens': 1200,
+        'context_char_cap': 4000,
+    },
+    'code_generation': {
+        'temperature': 0.3,
+        'max_tokens': 900,
+        'context_char_cap': 4000,
+    },
+    'image_generation': {
+        'temperature': 0.4,
+        'max_tokens': 1200,
+        'render_timeout': 120,   # seconds for the Manim still render
+    },
+    'video_generation': {
+        'temperature': 0.4,
+        'max_tokens': 1500,
+        'render_quality': 'medium',   # low|medium|high|production
+        'render_timeout': 300,
+        'default_duration': 60,       # target seconds (script pacing only)
+    },
 }
 
 

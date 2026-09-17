@@ -355,7 +355,9 @@ _GLOBAL_RATE_DEFAULTS = {
 }
 
 _SKILL_NAMES = ('exam_generation', 'exercise_generation',
-                'course_design', 'knowledge_extraction')
+                'course_design', 'knowledge_extraction',
+                'text_generation', 'code_generation',
+                'image_generation', 'video_generation')
 
 
 @login_required

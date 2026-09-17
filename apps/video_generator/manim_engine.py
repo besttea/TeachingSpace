@@ -43,11 +43,13 @@ def _find_rendered_video(out_root: Path, scene_name: str | None) -> Path | None:
 
 
 def render_script(script_source: str, scene_name: str | None = None,
-                  quality: str = 'medium', timeout: int = DEFAULT_TIMEOUT) -> dict:
+                  quality: str = 'medium', timeout: int = DEFAULT_TIMEOUT,
+                  still: bool = False) -> dict:
     """Render a Manim script; return {'success', 'video_path'|'error', 'duration_ms'}.
 
     The script is validated with ``script_validator`` first — invalid scripts
-    are rejected without spawning Manim.
+    are rejected without spawning Manim. ``still=True`` renders only the
+    last frame (Manim -s) and returns {'success', 'image_path', ...} instead.
     """
     from .script_validator import validate_script
 
@@ -68,6 +70,8 @@ def render_script(script_source: str, scene_name: str | None = None,
         out_root = Path(tmp) / 'output'
 
         cmd = ['manim', quality_flag, '--media_dir', str(out_root)]
+        if still:
+            cmd.append('-s')  # render the LAST frame only (text-to-image)
         if scene_name:
             cmd += [str(script_path), scene_name]
         else:
@@ -90,6 +94,22 @@ def render_script(script_source: str, scene_name: str | None = None,
             return {
                 'success': False,
                 'error': 'Manim 渲染失败: ' + (stderr[-1] if stderr else f'exit {completed.returncode}'),
+                'duration_ms': duration_ms,
+            }
+
+        if still:
+            images = sorted(out_root.rglob('*.png'))
+            if not images:
+                return {
+                    'success': False,
+                    'error': '渲染完成但未找到静帧图片',
+                    'duration_ms': duration_ms,
+                }
+            dest = _output_dir() / f'{images[-1].stem}_{int(time.time())}.png'
+            shutil.copy2(images[-1], dest)
+            return {
+                'success': True,
+                'image_path': str(dest),
                 'duration_ms': duration_ms,
             }
 
