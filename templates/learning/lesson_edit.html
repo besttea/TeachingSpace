@@ -559,7 +559,16 @@ function notebookEditor() {
         execCounts: {},   // cellId -> last kernel execution count (In[n])
         // json_script escapes script-closing tags; parsed safely from a
         // dedicated script tag instead of inline JSON with |safe.
-        cellsData: JSON.parse(document.getElementById('cells-data').textContent),
+        // Tolerates a legacy double-encoded value (string) as well.
+        cellsData: (function () {
+            try {
+                const value = JSON.parse(document.getElementById('cells-data').textContent);
+                return Array.isArray(value) ? value : JSON.parse(value);
+            } catch (e) {
+                console.error('cells-data parse failed', e);
+                return [];
+            }
+        })(),
         sortable: null,
 
         init() {

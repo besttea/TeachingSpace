@@ -10,7 +10,6 @@ from django.db.models import F, Q, Count, Prefetch
 from django.conf import settings
 import json
 import logging
-from django.core.serializers.json import DjangoJSONEncoder
 
 from .models import (
     Cell, CellVersion, Chapter, Course, Enrollment, KnowledgePoint, Lesson,
@@ -247,7 +246,11 @@ class LessonEditView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 'order': cell.order,
                 'data': cell.data
             })
-        context['cells_json'] = json.dumps(cells_data, cls=DjangoJSONEncoder)
+        # Pass the LIST — the json_script template filter does the
+        # JSON-encoding with safe script escaping. Passing json.dumps()
+        # here double-encodes into a string and breaks the frontend
+        # (cellsData.find is not a function).
+        context['cells_json'] = cells_data
 
         return context
 

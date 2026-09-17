@@ -152,7 +152,10 @@ class LessonViewTests(TestCase):
         response = self.client.get(reverse('learning:lesson-edit',
                                            args=[self.lesson.id]))
         self.assertEqual(response.status_code, 200)
-        cells = json.loads(response.context['cells_json'])
+        # cells_json must be the raw LIST (json_script encodes it) — a
+        # json.dumps string here would double-encode and break the editor
+        cells = response.context['cells_json']
+        self.assertIsInstance(cells, list)
         self.assertEqual(len(cells), 1)
         self.assertEqual(cells[0]['cell_type'], 'text')
 
