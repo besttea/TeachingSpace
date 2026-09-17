@@ -59,6 +59,13 @@ class CellSkillTests(TestCase):
         self.addCleanup(patcher.stop)
         return patcher.start()
 
+    def _patch_validator(self, problems=None):
+        patcher = mock.patch(
+            'apps.video_generator.script_validator.validate_script',
+            return_value=problems or [])
+        self.addCleanup(patcher.stop)
+        return patcher.start()
+
     def test_text_skill(self):
         call_mock = self._patch('## 标题\n\n正文内容')
         from apps.ai_agents.skills import TextSkill
@@ -74,16 +81,66 @@ class CellSkillTests(TestCase):
         self.assertEqual(result['content'], '```python\nprint(1)\n```')
 
     def test_image_skill_strips_fences(self):
+        self._patch_validator()
         self._patch('```python\nfrom manim import *\n```')
         from apps.ai_agents.skills import ImageSkill
         result = ImageSkill().run('螺旋')
         self.assertEqual(result['script'], 'from manim import *')
+        self.assertTrue(result['validated'])
 
     def test_video_skill_strips_fences(self):
+        self._patch_validator()
         self._patch('```python\nfrom manim import *\nclass S(Scene):\n    pass\n```')
         from apps.ai_agents.skills import VideoSkill
         result = VideoSkill().run('梯度下降')
         self.assertIn('class S(Scene)', result['script'])
+        self.assertTrue(result['validated'])
+
+    def test_manim_repair_loop_fixes_broken_script(self):
+        """First script is invalid → validator feedback goes back to the
+        model → the repaired script is accepted (user-reported failure
+        mode: unterminated string literal)."""
+        calls = []
+
+        def fake_call(prompt, **kwargs):
+            calls.append(prompt)
+            if 'REJECTED' in prompt:
+                return 'class S(Scene):\n    def construct(self):\n        pass'
+            return 'class S(Scene):\n    def construct(self):\n        self.add("unterminated'
+
+        validator = mock.patch(
+            'apps.video_generator.script_validator.validate_script')
+        mock_validator = validator.start()
+        self.addCleanup(validator.stop)
+        mock_validator.side_effect = lambda script: (
+            [] if script.strip().endswith('pass') else
+            ['语法错误: unterminated string literal (detected at line 5)'])
+
+        harness = mock.patch(
+            'apps.ai_agents.skills.cell_skills.HarnessCore.call',
+            side_effect=fake_call)
+        harness.start()
+        self.addCleanup(harness.stop)
+
+        from apps.ai_agents.skills import ImageSkill
+        result = ImageSkill().run('螺旋')
+        self.assertTrue(result['validated'], result.get('error'))
+        self.assertEqual(len(calls), 2)
+        self.assertIn('REJECTED', calls[1])
+        self.assertIn('unterminated', calls[1])
+
+    def test_manim_repair_exhausted_returns_error(self):
+        self._patch('class S(Scene):\n    def construct(self):\n        pass')
+        validator = mock.patch(
+            'apps.video_generator.script_validator.validate_script',
+            return_value=['语法错误: x'])
+        validator.start()
+        self.addCleanup(validator.stop)
+
+        from apps.ai_agents.skills import ImageSkill
+        result = ImageSkill().run('螺旋')
+        self.assertFalse(result['validated'])
+        self.assertIn('脚本校验失败', result['error'])
 
     def test_harness_failure_returns_error(self):
         self._patch(None)

@@ -74,12 +74,14 @@ DEFAULTS = {
     },
     'image_generation': {
         'temperature': 0.4,
-        'max_tokens': 1200,
+        'max_tokens': 1500,
+        'max_fix_attempts': 2,   # validator-feedback repair loop
         'render_timeout': 120,   # seconds for the Manim still render
     },
     'video_generation': {
         'temperature': 0.4,
         'max_tokens': 1500,
+        'max_fix_attempts': 2,   # validator-feedback repair loop
         'render_quality': 'medium',   # low|medium|high|production
         'render_timeout': 300,
         'default_duration': 60,       # target seconds (script pacing only)

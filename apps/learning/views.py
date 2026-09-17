@@ -1408,7 +1408,12 @@ def cell_ai_image(request, pk):
         result = ImageSkill().run(description)
         script = result.get('script', '')
         if not script:
-            return JsonResponse({'error': 'AI 未能生成配图脚本，请重试'}, status=400)
+            return JsonResponse({
+                'error': result.get('error') or 'AI 未能生成配图脚本，请重试'
+            }, status=400)
+        if not result.get('validated', True):
+            return JsonResponse({'error': result.get('error', '脚本校验失败')},
+                                status=400)
 
         from apps.video_generator.manim_engine import render_script
         params = skill_params('image_generation')

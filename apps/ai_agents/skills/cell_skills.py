@@ -24,6 +24,62 @@ def _context_block(context: str, cap: int) -> str:
     return f'\n\nGround the content in this material (cover its key points):\n{text[:cap]}'
 
 
+def _strip_fences(script: str) -> str:
+    return (script or '').replace('```python', '').replace('```', '').strip()
+
+
+def _generate_manim_script(params: dict, base_prompt: str,
+                           repair_feedback: str = '') -> tuple:
+    """One harness call for a Manim script; returns (script, error)."""
+    prompt = base_prompt
+    if repair_feedback:
+        prompt = (
+            f'Your previous Manim script was REJECTED by the validator:\n'
+            f'{repair_feedback}\n\n'
+            f'Fix ONLY the reported problem and keep the script complete and '
+            f'short. Return the corrected Python code, no fences.\n\n'
+            f'{base_prompt}')
+    try:
+        result = HarnessCore.call(
+            prompt, role='worker',
+            system_prompt='You are an expert in Manim. Return Python code only.',
+            temperature=params['temperature'],
+            max_tokens=params['max_tokens'])
+    except Exception as e:
+        logger.warning('manim script generation failed: %s', e)
+        return '', str(e)[:200]
+    return _strip_fences(result), ''
+
+
+def _validated_manim_script(params: dict, base_prompt: str) -> dict:
+    """Generate + validate + repair loop (validator feedback fed back to
+    the model, ≤ max_fix_attempts repairs — the truncated/broken-script
+    failure mode the user hit)."""
+    from apps.video_generator.script_validator import validate_script
+
+    max_attempts = params.get('max_fix_attempts', 2)
+    script, error = _generate_manim_script(params, base_prompt)
+    if error and not script:
+        return {'script': '', 'error': error, 'validated': False}
+    for attempt in range(max_attempts + 1):
+        problems = validate_script(script) if script else ['空脚本']
+        if not problems:
+            return {'script': script, 'error': '', 'validated': True}
+        if attempt >= max_attempts:
+            return {
+                'script': script,
+                'error': '脚本校验失败: ' + '; '.join(problems[:3]),
+                'validated': False,
+            }
+        logger.warning('manim script invalid (%s) — repair attempt %d',
+                       problems[0], attempt + 1)
+        script, error = _generate_manim_script(
+            params, base_prompt, repair_feedback='; '.join(problems[:3]))
+        if error and not script:
+            return {'script': '', 'error': error, 'validated': False}
+    return {'script': '', 'error': '脚本校验失败', 'validated': False}
+
+
 class TextSkill(Skill):
     """Generate markdown teaching content for one topic."""
 
@@ -103,20 +159,12 @@ class ImageSkill(Skill):
             f'is fine, the last frame must be the complete diagram\n'
             f'3. Use MathTex/Text with Chinese only via Text(font="Noto Sans CJK SC") '
             f'or avoid Chinese in labels; prefer English labels + simple shapes\n'
-            f'4. No interactivity, no file IO, no imports beyond manim\n'
+            f'4. KEEP IT SHORT: at most 40 lines, at most 8 objects\n'
+            f'5. No interactivity, no file IO, no imports beyond manim\n'
             f'Return ONLY the Python code, no fences.')
-        try:
-            result = HarnessCore.call(
-                prompt, role='worker',
-                system_prompt='You are an expert in Manim. Return Python code only.',
-                temperature=params['temperature'],
-                max_tokens=params['max_tokens'])
-        except Exception as e:
-            logger.warning('image script generation failed: %s', e)
-            return {'script': '', 'error': str(e)[:200]}
-        script = (result or '').strip()
-        script = script.replace('```python', '').replace('```', '').strip()
-        return {'script': script, 'description': description}
+        result = _validated_manim_script(params, prompt)
+        result['description'] = description
+        return result
 
 
 class VideoSkill(Skill):
@@ -138,17 +186,9 @@ class VideoSkill(Skill):
             f'2. Clear animations: Write, FadeIn, Transform, Create\n'
             f'3. Visualize with shapes, axes, Text or MathTex (prefer English '
             f'labels for reliability)\n'
-            f'4. No file IO, no network, no imports beyond manim\n'
+            f'4. KEEP IT SHORT: at most 60 lines\n'
+            f'5. No file IO, no network, no imports beyond manim\n'
             f'Return ONLY the Python code, no fences.')
-        try:
-            result = HarnessCore.call(
-                prompt, role='worker',
-                system_prompt='You are an expert in Manim. Return Python code only.',
-                temperature=params['temperature'],
-                max_tokens=params['max_tokens'])
-        except Exception as e:
-            logger.warning('video script generation failed: %s', e)
-            return {'script': '', 'error': str(e)[:200]}
-        script = (result or '').strip()
-        script = script.replace('```python', '').replace('```', '').strip()
-        return {'script': script, 'topic': topic}
+        result = _validated_manim_script(params, prompt)
+        result['topic'] = topic
+        return result
