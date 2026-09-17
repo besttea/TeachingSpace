@@ -25,8 +25,8 @@ jobs:
       - name: Lint (ruff)
         run: ruff check apps config
 
-      - name: Tests (fast, no Manim/Docker)
-        run: pytest -m "not slow" --cov=apps --cov-report=term-missing --cov-fail-under=60
+      - name: Tests + coverage gate (core modules ≥80%, OPTIMIZATION_PLAN 6.5)
+        run: pytest -m "not slow" --cov=apps/code_runner --cov=apps/learning --cov=apps/training --cov=apps/examination --cov-report=term-missing --cov-fail-under=80
 
       - name: Security audit (pip-audit)
         run: |

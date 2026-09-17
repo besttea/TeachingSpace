@@ -1,0 +1,26 @@
+# OPTIMIZATION_PLAN 6.5 — code quality gates run locally before every commit.
+# `ruff format` is intentionally NOT enforced: the codebase's established
+# style predates it (98 files would churn); lint + hygiene hooks only.
+# Run `pre-commit install` once per clone.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff lint (pyproject.toml)
+        entry: ruff check
+        language: system
+        types: [python]
+        args: [--fix]
+      - id: ruff-lint-no-fix
+        name: ruff lint (gate, no autofix)
+        entry: ruff check
+        language: system
+        types: [python]
+        # second pass without --fix fails the commit if autofix left issues

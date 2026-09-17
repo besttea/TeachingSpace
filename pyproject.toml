@@ -14,3 +14,12 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Django settings use `from .base import *` by convention
 "config/settings/*" = ["F403", "F405"]
+
+[tool.coverage.run]
+# sandbox_runner.py executes as a `python -I` subprocess (no coverage
+# tracing inside the child); its behavior is exercised indirectly by every
+# CodeExecutor integration test. Excluded from line coverage (6.5).
+omit = ["*/sandbox_runner.py"]
+
+[tool.coverage.report]
+show_missing = true
