@@ -332,10 +332,17 @@ def instructor_course_create(request):
                              '配置后可在课程详情页添加章节/课程单元')
                 return redirect('learning:instructor-course-manage', slug=course.slug)
 
+            try:
+                chapter_count = int(request.POST.get('chapter_count', 3))
+            except (TypeError, ValueError):
+                chapter_count = 3
+            chapter_count = max(1, min(chapter_count, 10))
+
             from celery import current_app
             from .tasks import design_course_outline_task
 
-            design_course_outline_task.delay(course.id)
+            design_course_outline_task.delay(course.id,
+                                             chapter_count=chapter_count)
             if current_app.conf.task_always_eager:
                 messages.success(
                     request, 'AI 已生成课程大纲。请在下方为每个单元生成内容。')

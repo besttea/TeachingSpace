@@ -4,6 +4,7 @@ completion tracking (OPTIMIZATION_PLAN 6.5 coverage gate)."""
 
 import json
 import unittest
+from unittest import mock
 
 from django.test import TestCase
 from django.urls import reverse
@@ -366,3 +367,50 @@ class CellTypeConversionTests(TestCase):
         self.client.force_login(self.student)
         response = self._update({'cell_type': 'text'})
         self.assertEqual(response.status_code, 403)
+
+
+class CourseCreateChapterCountTests(TestCase):
+    """The AI-assisted create flow must honor the form's chapter count."""
+
+    def setUp(self):
+        self.instructor = _make_user('teacher', 'instructor')
+        self.client.force_login(self.instructor)
+
+    def _create(self, **overrides):
+        data = {'title': '新课程', 'description': '描述',
+                'difficulty': 'beginner', 'ai_design': 'on',
+                'chapter_count': '5'}
+        data.update(overrides)
+        return self.client.post(
+            reverse('learning:instructor-course-create'), data)
+
+    @mock.patch('apps.ai_agents.ai_config.is_configured', return_value=True)
+    @mock.patch('apps.learning.tasks.design_course_outline_task')
+    def test_chapter_count_passed_to_task(self, task_mock, _cfg):
+        response = self._create()
+        course = Course.objects.get(title='新课程')
+        self.assertRedirects(response, reverse(
+            'learning:instructor-course-outline', args=[course.slug]))
+        self.assertEqual(
+            task_mock.delay.call_args.kwargs['chapter_count'], 5)
+
+    @mock.patch('apps.ai_agents.ai_config.is_configured', return_value=True)
+    @mock.patch('apps.learning.tasks.design_course_outline_task')
+    def test_invalid_count_defaults_to_three(self, task_mock, _cfg):
+        self._create(chapter_count='abc')
+        self.assertEqual(
+            task_mock.delay.call_args.kwargs['chapter_count'], 3)
+
+    @mock.patch('apps.ai_agents.ai_config.is_configured', return_value=True)
+    @mock.patch('apps.learning.tasks.design_course_outline_task')
+    def test_count_clamped_to_ten(self, task_mock, _cfg):
+        self._create(chapter_count='999')
+        self.assertEqual(
+            task_mock.delay.call_args.kwargs['chapter_count'], 10)
+
+    def test_manual_flow_ignores_chapter_count(self):
+        response = self._create(ai_design='')
+        course = Course.objects.get(title='新课程')
+        self.assertRedirects(response, reverse(
+            'learning:instructor-course-manage', args=[course.slug]))
+        self.assertEqual(course.chapters.count(), 0)

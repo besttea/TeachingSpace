@@ -214,3 +214,34 @@ class KPExtractTaskTests(TestCase):
         self.assertEqual(status['chapters_processed'], 0)
         self.assertEqual(status['points_created'], 0)
         self.assertEqual(self.course.knowledge_points.count(), 0)
+
+
+class CourseDesignChapterCountTests(TestCase):
+    """The instructor picks the chapter count on the create form — the
+    task must forward it (was hardcoded to 3)."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.instructor = User.objects.create_user(
+            username='teacher', email='t@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.course = Course.objects.create(
+            title='章节数课程', slug='cc-course', instructor=self.instructor,
+            difficulty_level='beginner')
+
+    @mock.patch('apps.chat.notebook_tools.find_related_sections', return_value='')
+    @mock.patch('apps.ai_agents.skills.CourseSkill')
+    def test_task_forwards_chapter_count(self, skill_cls, _find):
+        skill_cls.return_value.run.return_value = {'chapters': []}
+        design_course_outline_task.delay(self.course.id, chapter_count=7)
+        self.assertEqual(
+            skill_cls.return_value.run.call_args.kwargs['chapter_count'], 7)
+
+    @mock.patch('apps.chat.notebook_tools.find_related_sections', return_value='')
+    @mock.patch('apps.ai_agents.skills.CourseSkill')
+    def test_task_clamps_out_of_range(self, skill_cls, _find):
+        skill_cls.return_value.run.return_value = {'chapters': []}
+        design_course_outline_task.delay(self.course.id, chapter_count=99)
+        self.assertEqual(
+            skill_cls.return_value.run.call_args.kwargs['chapter_count'], 10)

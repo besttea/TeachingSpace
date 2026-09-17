@@ -42,11 +42,12 @@ def kp_extract_status(course_id) -> dict:
 
 
 @shared_task(bind=True, max_retries=_MAX_RETRIES)
-def design_course_outline_task(self, course_id: int):
+def design_course_outline_task(self, course_id: int, chapter_count: int = 3):
     """AI-design a course outline (planner role) and create chapters+lessons.
 
     Runs after the course row exists; the create flow redirects to the
-    outline page which polls course_design_status. Retried with exponential
+    outline page which polls course_design_status. The instructor picks
+    the chapter count on the create form (1-10). Retried with exponential
     backoff on transient failures (OPTIMIZATION_PLAN 2.3).
     """
     from apps.learning.models import Chapter, Course, Lesson
@@ -64,7 +65,7 @@ def design_course_outline_task(self, course_id: int):
         outline = CourseSkill().run(
             topic=course.title,
             difficulty=course.difficulty_level,
-            chapter_count=3,
+            chapter_count=max(1, min(chapter_count, 10)),
             source_material=source_material,
             with_content=False,
         )
