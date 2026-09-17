@@ -151,7 +151,12 @@ $RECYCLE.BIN/
 
 # Project specific
 /media/
-/static/
+# static is CDN-only by convention — the only repo-shipped asset is the
+# math-aware markdown pipeline (must reach CI/production builds)
+/static/*
+!/static/js/
+/static/js/*
+!/static/js/math-markdown.js
 secret_key.txt
 .env.production
 .env.development
