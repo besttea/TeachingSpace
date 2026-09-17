@@ -125,6 +125,16 @@ class ExerciseDetailView(LoginRequiredMixin, DetailView):
         return context
 
 
+def _allowed_kps(user):
+    """Knowledge points an instructor may bind exercises to (own courses;
+    staff may bind any)."""
+    from apps.learning.models import KnowledgePoint
+    qs = KnowledgePoint.objects.select_related('course')
+    if not user.is_staff:
+        qs = qs.filter(course__instructor=user)
+    return qs.order_by('course__title', 'order', 'id')
+
+
 @login_required
 @require_http_methods(["POST"])
 @rate_limit('exercise_submit', limit=10, window_seconds=60)
@@ -271,6 +281,10 @@ def exercise_edit(request, pk):
                         exercise=exercise, content=hint_text, order=i,
                         points_penalty=penalty)
 
+            exercise.knowledge_points.set(
+                _allowed_kps(request.user).filter(
+                    pk__in=request.POST.getlist('knowledge_points')))
+
             messages.success(request, f'练习《{exercise.title}》已更新')
             return redirect('training:exercise-detail', slug=exercise.slug)
         except Exception as e:
@@ -289,6 +303,9 @@ def exercise_edit(request, pk):
         'hint_penalties': {str(i + 1): (hints[i].points_penalty if i < len(hints) else i + 2)
                            for i in range(3)},
         'test_cases_json': _json.dumps(exercise.test_cases, ensure_ascii=False),
+        'knowledge_points': _allowed_kps(request.user),
+        'selected_kp_ids': list(
+            exercise.knowledge_points.values_list('id', flat=True)),
     }
     return render(request, 'training/exercise_form.html', context)
 
@@ -333,7 +350,21 @@ def exercise_ai_draft(request):
         data = json.loads(request.body)
         topic = (data.get('topic') or '').strip()
         difficulty = data.get('difficulty', 'beginner')
-        if not topic:
+
+        # Knowledge-point-driven draft: when a KP id is given, the topic is
+        # the knowledge point itself (grounded generation); permission is
+        # checked against the KP's course instructor.
+        knowledge_point_id = data.get('knowledge_point_id')
+        if knowledge_point_id:
+            from apps.learning.models import KnowledgePoint
+            kp = KnowledgePoint.objects.filter(pk=knowledge_point_id).first()
+            if kp is None:
+                return JsonResponse({'error': '知识点不存在'}, status=404)
+            if not (request.user == kp.course.instructor or request.user.is_staff):
+                return JsonResponse({'error': 'Permission denied'}, status=403)
+            topic = f'{kp.course.title}：{kp.title}'
+            difficulty = kp.difficulty
+        elif not topic:
             return JsonResponse({'error': '主题不能为空'}, status=400)
 
         from apps.ai_agents.ai_config import is_configured
@@ -352,6 +383,7 @@ def exercise_ai_draft(request):
             'validated': result['validated'],
             'validation_message': result['validation_message'],
             'attempts': result['attempts'],
+            'knowledge_point_id': knowledge_point_id,
         })
     except Exception as e:
         import logging
@@ -403,6 +435,9 @@ def exercise_create(request):
                 solution_code=solution_code, test_cases=test_cases,
                 course=course, created_by=request.user,
             )
+            exercise.knowledge_points.set(
+                _allowed_kps(request.user).filter(
+                    pk__in=request.POST.getlist('knowledge_points')))
 
             # Hints (up to 3, in order)
             for i in range(1, 4):
@@ -419,7 +454,11 @@ def exercise_create(request):
             messages.error(request, f'创建失败: {e}')
             return redirect('training:exercise-create')
 
-    context = {'courses': Course.objects.filter(is_published=True)}
+    context = {
+        'courses': Course.objects.filter(is_published=True),
+        'knowledge_points': _allowed_kps(request.user),
+        'selected_kp_ids': [],
+    }
     return render(request, 'training/exercise_form.html', context)
 
 

@@ -5,6 +5,20 @@ All notable changes to the Python Learning Platform will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-09-17
+
+### Added
+- **知识点数据库 (KnowledgePoint)**: course-scoped knowledge-point model (learning 0002) — the indexed backbone the user asked for. Instructor-triggered AI extraction (per-chapter worker calls) with the grounding chain *lesson text cells → ClassLib related sections → autonomous model knowledge* (no material never means no output), near-duplicate merge, async task + 3s polling, and manual CRUD in the course manage page's new 知识点库 card
+- **Knowledge-point-driven generation** (the mechanical fix for duplicate questions): ExamSkill distributes questions across knowledge points distinct-first (one question, one KP — repeats impossible by construction) plus per-question "target knowledge point" prompt injection; `generate_exercises` iterates course KPs one exercise each; exercise AI-draft accepts a knowledge_point_id
+- **Exam ↔ course link**: optional `Exam.course` (examination 0003) — the exam create form gains a course select, the manage page shows course + KP badges per question, question edit binds/unbinds KPs, question cloning copies them
+- **Exercise ↔ KP binding** (training 0002): create/edit forms gain a KP multi-select (own courses only), drafts preselect the generated KP
+- **ClassLib category directories**: notebooks now live under `ClassLib/<category>/` (existing seven → `Python基础程序设计/`); all scanners walk recursively, display names carry the category, traversal whitelist preserved
+- `knowledge_extraction` skill knobs in skill_config (temperature/max_tokens/max_points_per_chapter/chapter_char_cap/dedup)
+
+### Changed
+- Shared text-similarity util (`apps/ai_agents/skills/text_similarity.py`) now backs exam/exercise/KP dedup — one implementation, same thresholds
+- Test suite: 318 → 363 tests; core-module coverage gate still ≥80% (85%)
+
 ## [1.3.0] - 2026-09-17
 
 ### Added

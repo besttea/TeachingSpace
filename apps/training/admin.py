@@ -19,7 +19,8 @@ class ExerciseAdmin(admin.ModelAdmin):
 
     fieldsets = (
         ('Basic Information', {
-            'fields': ('title', 'slug', 'description', 'difficulty', 'course')
+            'fields': ('title', 'slug', 'description', 'difficulty', 'course',
+                       'knowledge_points')
         }),
         ('Code Requirements', {
             'fields': ('starter_code', 'solution_code', 'test_cases')

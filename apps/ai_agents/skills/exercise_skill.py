@@ -12,17 +12,13 @@ canonical exercise.
 
 import json
 import logging
-import re
-
-from difflib import SequenceMatcher
 
 from ..harness import HarnessCore
 from ..skill_config import skill_params
 from .base import Skill
+from .text_similarity import is_near_duplicate
 
 logger = logging.getLogger(__name__)
-
-_WORD_RE = re.compile(r'[\W_]+', re.UNICODE)
 
 _CONTRACT = """
 Return JSON ONLY with this exact structure:
@@ -124,13 +120,5 @@ class ExerciseSkill(Skill):
         """Near-duplicate check against already-accepted exercises (batch)."""
         if not self.params['dedup_enabled']:
             return False
-        cand = _WORD_RE.sub(' ', exercise.get('title', '')).lower()
-        if not cand:
-            return False
-        for other in existing:
-            ratio = SequenceMatcher(
-                None, cand,
-                _WORD_RE.sub(' ', other.get('title', '')).lower()).ratio()
-            if ratio >= self.params['dedup_threshold']:
-                return True
-        return False
+        return is_near_duplicate(exercise.get('title', ''), existing,
+                                 self.params['dedup_threshold'])

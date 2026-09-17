@@ -100,6 +100,80 @@
                 </span>
             </div>
 
+            <!-- 知识点库（课程内容的结构化索引——习题/考题生成的地基） -->
+            <div class="card border-info mb-4">
+                <div class="card-header bg-info bg-opacity-10 d-flex justify-content-between align-items-center">
+                    <strong><i class="bi bi-diagram-3"></i> 知识点库</strong>
+                    <span class="d-flex align-items-center gap-2">
+                        <span id="kpBadge" class="small text-muted"></span>
+                        <button class="btn btn-sm btn-outline-info"
+                                onclick="kpExtractFlow()">
+                            <i class="bi bi-stars"></i> AI 提炼知识点
+                        </button>
+                    </span>
+                </div>
+                <div class="card-body">
+                    <form onsubmit="return kpAdd(event)" class="row g-2 mb-3">
+                        {% csrf_token %}
+                        <div class="col-md-3">
+                            <input type="text" class="form-control form-control-sm"
+                                   id="kpTitle" placeholder="知识点名称" required>
+                        </div>
+                        <div class="col-md-4">
+                            <input type="text" class="form-control form-control-sm"
+                                   id="kpDesc" placeholder="一句话说明（可选）">
+                        </div>
+                        <div class="col-md-2">
+                            <select class="form-select form-select-sm" id="kpDifficulty">
+                                <option value="beginner">Beginner</option>
+                                <option value="intermediate" selected>Intermediate</option>
+                                <option value="advanced">Advanced</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <select class="form-select form-select-sm" id="kpChapter">
+                                <option value="">不关联章节</option>
+                                {% for item in chapters_data %}
+                                <option value="{{ item.chapter.id }}">{{ item.chapter.title }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-1">
+                            <button type="submit" class="btn btn-sm btn-primary w-100">
+                                <i class="bi bi-plus-lg"></i>
+                            </button>
+                        </div>
+                    </form>
+                    <ul class="list-group">
+                        {% for kp in knowledge_points %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center py-2">
+                            <div class="me-3">
+                                <span class="badge {% if kp.difficulty == 'beginner' %}bg-success{% elif kp.difficulty == 'intermediate' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                    {{ kp.get_difficulty_display }}</span>
+                                <strong class="ms-1">{{ kp.title }}</strong>
+                                <span class="text-muted small ms-2">{{ kp.description|truncatechars:60 }}</span>
+                                {% if kp.chapter %}<span class="badge bg-secondary ms-1">{{ kp.chapter.title }}</span>{% endif %}
+                            </div>
+                            <div class="btn-group text-nowrap">
+                                <button class="btn btn-sm btn-outline-secondary"
+                                        onclick="kpEdit({{ kp.id }}, '{{ kp.title|escapejs }}', '{{ kp.description|escapejs }}', '{{ kp.difficulty }}')">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger"
+                                        onclick="kpDelete({{ kp.id }}, '{{ kp.title|escapejs }}')">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </li>
+                        {% empty %}
+                        <li class="list-group-item text-muted">
+                            还没有知识点。点击「AI 提炼知识点」从课程内容自动提炼（优先接地 ClassLib 素材，无素材时自主发挥），或手动添加。提炼结果需你审核。
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+
             <!-- 添加章节 -->
             <form method="post" action="{% url 'learning:instructor-chapter-create' course.slug %}"
                   class="row g-2 mb-4">
@@ -335,6 +409,110 @@
             sessionStorage.removeItem('courseOpenChapters');
         }
     })();
+
+    // ---- 知识点库管理 ----
+    async function kpExtractFlow() {
+        const badge = document.getElementById('kpBadge');
+        if (!confirm('从课程全部章节的文本内容中提炼知识点？\n（优先接地 ClassLib 素材，无素材时基于模型通识自主发挥；已有知识点不会被覆盖）')) return;
+        badge.textContent = '⏳ 提炼中…';
+        try {
+            const resp = await fetch(`/learning/api/courses/{{ course.id }}/kp-extract/`, {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+                body: JSON.stringify({})
+            });
+            const data = await resp.json();
+            if (!data.success) {
+                badge.textContent = '';
+                alert('提炼失败: ' + (data.error || '请确认已配置 AI 密钥'));
+                return;
+            }
+            if (data.queued) {
+                await pollKpStatus(badge);
+            } else {
+                finishKpExtract(data.status, badge);
+            }
+        } catch (e) {
+            badge.textContent = '';
+            alert('请求失败，请重试');
+        }
+    }
+
+    async function pollKpStatus(badge) {
+        for (let i = 0; i < 120; i++) {
+            await new Promise(r => setTimeout(r, 3000));
+            try {
+                const resp = await fetch(`/learning/api/courses/{{ course.id }}/kp-status/`);
+                const data = await resp.json();
+                const status = (data.status || {}).status;
+                if (status === 'done') { finishKpExtract(data.status, badge); return; }
+                if (status === 'error') {
+                    badge.textContent = '';
+                    alert('提炼失败: ' + ((data.status || {}).error || '请重试'));
+                    return;
+                }
+                if (status === 'retrying') badge.textContent = '⏳ 提炼中（重试）…';
+            } catch (e) { /* transient — keep polling */ }
+        }
+        badge.textContent = '';
+        alert('提炼超时，请刷新页面查看进度');
+    }
+
+    function finishKpExtract(status, badge) {
+        badge.textContent = '';
+        let message = `已提炼 ${status.points_created || 0} 个知识点`;
+        if (status.duplicates_skipped) message += `（跳过 ${status.duplicates_skipped} 个重复）`;
+        message += '。请审核后用于习题与考题生成。';
+        alert(message);
+        preserveStateAndReload();
+    }
+
+    function kpAdd(event) {
+        event.preventDefault();
+        const payload = {
+            title: document.getElementById('kpTitle').value,
+            description: document.getElementById('kpDesc').value,
+            difficulty: document.getElementById('kpDifficulty').value,
+            chapter_id: document.getElementById('kpChapter').value || null,
+        };
+        fetch(`/learning/api/courses/{{ course.id }}/kp-add/`, {
+            method: 'POST',
+            headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        }).then(r => r.json()).then(data => {
+            if (data.success) { alert(data.message); preserveStateAndReload(); }
+            else alert(data.error || '添加失败');
+        });
+        return false;
+    }
+
+    function kpEdit(kpId, oldTitle, oldDesc, oldDifficulty) {
+        const title = prompt('知识点名称：', oldTitle);
+        if (title === null) return;
+        const description = prompt('一句话说明：', oldDesc) || '';
+        if (title.trim() === '') { alert('名称不能为空'); return; }
+        fetch(`/learning/api/knowledge-points/${kpId}/update/`, {
+            method: 'POST',
+            headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+            body: JSON.stringify({title: title, description: description,
+                                  difficulty: oldDifficulty})
+        }).then(r => r.json()).then(data => {
+            if (data.success) { alert(data.message); preserveStateAndReload(); }
+            else alert(data.error || '更新失败');
+        });
+    }
+
+    function kpDelete(kpId, title) {
+        if (!confirm(`删除知识点《${title}》？习题/考题与其的绑定会一并解除。`)) return;
+        fetch(`/learning/api/knowledge-points/${kpId}/delete/`, {
+            method: 'POST',
+            headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        }).then(r => r.json()).then(data => {
+            if (data.success) { alert(data.message); preserveStateAndReload(); }
+            else alert(data.error || '删除失败');
+        });
+    }
 
     function preserveStateAndReload() {
         sessionStorage.setItem('courseScrollPos', String(window.scrollY));

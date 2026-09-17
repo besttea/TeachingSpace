@@ -174,7 +174,8 @@ AI_SKILL_PARAMS={"exam_generation": {"temperature": 0.5, "max_questions": 20, "d
 现有旋钮组：`exam_generation`（plan/worker 温度与 token、`max_questions`、`validate_code`、
 `dedup_enabled`/`dedup_threshold`）、`exercise_generation`（温度/token、`max_fix_attempts`、
 `validate_code`、去重）、`course_design`（大纲/单元格/深度内容三档温度与 token、`max_lessons`、
-`max_cells_per_lesson`）。**考题/习题批量生成的去重**：逐题请求注入「已生成题目」负面示例
+`max_cells_per_lesson`）、`knowledge_extraction`（温度/token、`max_points_per_chapter`、
+`chapter_char_cap`、去重）。**考题/习题批量生成的去重**：逐题请求注入「已生成题目」负面示例
 + 生成后 SequenceMatcher 相似度过滤（默认阈值 0.85），两层防线解决"同一道题出五六遍"。
 
 ### 5.3 执行与任务
@@ -258,6 +259,16 @@ BaseAgent（薄适配层，API 不变 + role 参数）
 - CLI 四格式：`digest`（AI 友好结构摘要）/ `json` / `sections` / `cells`（可直接入 Cell 表）。
 
 消费方：`import_notebook` / `load_notebook_data` 命令、聊天工具 `get_notebook_section`、Claude Code skill `.claude/skills/notebook-reader/`（供 AI 编程助手理解素材）。修改解析器即同步影响三方。
+
+### 6.3.1 知识点库（KnowledgePoint 管道）
+
+课程内容的**结构化索引**——习题与考题生成的地基（用户反馈 2026-09-17）：
+
+- **模型**：`apps/learning/models.py::KnowledgePoint`（course FK CASCADE / chapter SET_NULL / title / description / difficulty / order；`unique_together (course, title)`）；`Exercise.knowledge_points`（training 0002）与 `Question.knowledge_points`（examination 0003）M2M；`Exam.course` 可选 FK 让整卷生成有知识点可依。
+- **提炼管道**：`extract_knowledge_points_task`（learning/tasks.py，状态键 `kp_extract_status:<id>`）按章节调用 `KnowledgeSkill.extract`；**接地链** = 单元文本单元格 →（文本 <200 字符时）`find_related_sections` ClassLib 素材 → **无素材时显式自主模式**（模型通识出点，绝不因缺素材失败）；合并入库时 `is_near_duplicate` 去重，逐条内层 `transaction.atomic()` 防 IntegrityError 毒化。
+- **按知识点生成**：`ExamSkill.run(..., knowledge_points=...)` 轮转分派（`index % len`，先覆盖全部知识点再重复）并在每题 prompt 注入「Target knowledge point」；`generate_exercises` 逐知识点出题。**一题一知识点 = 机理级去重**，相似度过滤降级为兜底。
+- **人工审核闭环**：教师工作台「知识点库」卡片（提炼/轮询/增删改）；考试管理页题目带知识点徽标、题目编辑可改绑；习题表单多选绑定。
+- 文本相似度统一入口：`apps/ai_agents/skills/text_similarity.py`（考题/习题/知识点合并去重共用，`title` 或 `text` 键均可）。
 
 ### 6.4 考试系统
 

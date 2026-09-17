@@ -103,6 +103,7 @@ def clone_question(source: 'Question', target_exam, order: int):
         difficulty=source.difficulty,
         order=order,
     )
+    question.knowledge_points.set(source.knowledge_points.all())
     specific = source.get_specific_question()
     if isinstance(specific, MultipleChoiceQuestion):
         MultipleChoiceQuestion.objects.create(

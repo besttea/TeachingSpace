@@ -31,6 +31,18 @@
                 <label class="form-label">分值</label>
                 <input type="number" class="form-control" name="points" value="{{ data.points }}" min="1">
             </div>
+            {% if available_kps %}
+            <div class="mb-3 col-md-9">
+                <label class="form-label">知识点（来自关联课程的知识点库，可多选）</label>
+                <select class="form-select" name="knowledge_points" multiple size="4">
+                    {% for kp in available_kps %}
+                    <option value="{{ kp.id }}" {% if kp.id in selected_kp_ids %}selected{% endif %}>
+                        {{ kp.title }}{% if kp.description %} — {{ kp.description|truncatechars:40 }}{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
 
             {% if question.question_type == 'multiple_choice' %}
             <hr>

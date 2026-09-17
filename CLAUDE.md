@@ -395,6 +395,10 @@ Evaluate Answer → Calculate Score → Generate Feedback → Save Result
   - Status (draft, published, archived)
   - Version tracking
   - Export format preferences
+- `KnowledgePoint`: Course-scoped knowledge points (the indexed backbone for exercise/exam generation)
+  - Course FK + optional chapter link, title/description/difficulty/order, unique per course
+  - AI extraction via `extract_knowledge_points_task` (grounding chain: lesson cells → ClassLib → autonomous), instructor-reviewed CRUD in the course manage page
+  - `Exercise.knowledge_points` / `Question.knowledge_points` M2M + `Exam.course` FK; ExamSkill distributes questions across KPs distinct-first (mechanical dedup)
 - `Cell`: Individual content cells within lessons (Jupyter-style)
   - **Polymorphic types**: text, code, image, video
   - **Common fields**: lesson_id, order, created_at, updated_at

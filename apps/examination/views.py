@@ -22,6 +22,7 @@ from .models import (
 )
 from apps.code_runner.executor import CodeExecutor
 from apps.core.rate_limit import rate_limit
+from apps.learning.models import Course
 
 
 class ExamListView(LoginRequiredMixin, ListView):
@@ -440,10 +441,10 @@ class InstructorExamListView(LoginRequiredMixin, TemplateView):
         exams = Exam.objects.filter(created_by=user).annotate(
             question_count=Count('questions'),
             attempt_count=Count('student_attempts'),
-        ).prefetch_related(
+        ).select_related('course').prefetch_related(
             Prefetch('questions', queryset=Question.objects.order_by('order').prefetch_related(
                 'multiplechoicequestion', 'codequestion',
-                'essayquestion', 'truefalsequestion'))
+                'essayquestion', 'truefalsequestion', 'knowledge_points'))
         ).order_by('-created_at')
         context['exams'] = exams
         return context
@@ -466,6 +467,18 @@ def exam_create(request):
             attempts = int(request.POST.get('max_attempts', 3))
         except (TypeError, ValueError):
             duration = passing = attempts = 0
+
+        # Optional course link: enables knowledge-point-driven generation.
+        # Only the instructor's own courses (or any course for staff).
+        course = None
+        try:
+            course_id = int(request.POST.get('course_id') or 0)
+        except (TypeError, ValueError):
+            course_id = 0
+        if course_id:
+            qs = Course.objects.all() if request.user.is_staff else \
+                Course.objects.filter(instructor=request.user)
+            course = qs.filter(pk=course_id).first()
 
         errors = []
         if not title:
@@ -491,13 +504,17 @@ def exam_create(request):
             is_published=False,  # new exams start as drafts
             show_results_immediately=request.POST.get('show_results_immediately') == 'on',
             randomize_questions=request.POST.get('randomize_questions') == 'on',
+            course=course,
             created_by=request.user,
         )
         messages.success(
             request, f'考试《{exam.title}》已创建（草稿）——添加题目并审核后发布')
         return redirect('examination:exam-manage')
 
-    return render(request, 'examination/exam_form.html')
+    courses = Course.objects.all() if request.user.is_staff else \
+        Course.objects.filter(instructor=request.user)
+    return render(request, 'examination/exam_form.html',
+                  {'courses': courses})
 
 
 @login_required
@@ -534,11 +551,23 @@ def exam_ai_generate(request, pk):
     if not is_configured():
         return JsonResponse({'success': False, 'error': 'AI 服务未配置（缺少 API 密钥）'}, status=400)
 
+    # Knowledge-point-driven generation: when the exam is linked to a course
+    # with knowledge points, every question targets one KP (distinct-first —
+    # no duplicate questions by construction); otherwise autonomous topic
+    # generation (user feedback 2026-09-17: ClassLib/课程素材接地与自主发挥并重).
+    knowledge_points = None
+    if exam.course_id:
+        knowledge_points = [
+            {'id': kp.id, 'title': kp.title, 'description': kp.description}
+            for kp in exam.course.knowledge_points.all()
+        ]
+
     from celery import current_app
     from .tasks import generate_exam_questions_task
 
-    generate_exam_questions_task.delay(exam.id, count=count,
-                                       difficulty=difficulty, topic=topic)
+    generate_exam_questions_task.delay(
+        exam.id, count=count, difficulty=difficulty, topic=topic,
+        knowledge_points=knowledge_points)
     if current_app.conf.task_always_eager:
         from .tasks import exam_gen_status
         status = exam_gen_status(exam.id)
@@ -806,6 +835,14 @@ def question_edit(request, pk):
 
         points_changed = updated['points'] != question.points
         apply_question(question, updated)
+        # Knowledge points: only those of the exam's course are accepted
+        # (filtered server-side — never trust the posted ids).
+        if question.exam.course_id:
+            kp_ids = request.POST.getlist('knowledge_points')
+            question.knowledge_points.set(
+                question.exam.course.knowledge_points.filter(pk__in=kp_ids))
+        else:
+            question.knowledge_points.clear()
         if points_changed:
             from .question_ai import recompute_exam_scores
             recompute_exam_scores(question.exam)
@@ -823,6 +860,10 @@ def question_edit(request, pk):
         'option_d': question_to_dict(question).get('options', {}).get('D', ''),
         'test_cases_json': json.dumps(
             question_to_dict(question).get('test_cases', []), ensure_ascii=False),
+        'available_kps': (question.exam.course.knowledge_points.all()
+                          if question.exam.course_id else []),
+        'selected_kp_ids': list(
+            question.knowledge_points.values_list('id', flat=True)),
     }
     return render(request, 'examination/question_form.html', context)
 

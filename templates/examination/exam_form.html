@@ -25,6 +25,19 @@
                     <textarea class="form-control" id="description" name="description" rows="2"
                               placeholder="对学生的考试说明（可选）"></textarea>
                 </div>
+                <div class="mb-3">
+                    <label class="form-label" for="course_id">关联课程（可选）</label>
+                    <select class="form-select" id="course_id" name="course_id">
+                        <option value="">不关联课程（按主题自主出题）</option>
+                        {% for c in courses %}
+                        <option value="{{ c.id }}">{{ c.title }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text">
+                        关联后 AI 生成将按该课程的<strong>知识点库</strong>逐知识点出题（一题一知识点，题与题不重复）；
+                        不关联则按考试标题自主发挥。
+                    </div>
+                </div>
                 <div class="row">
                     <div class="col-md-4 mb-3">
                         <label class="form-label" for="duration_minutes">时长（分钟）</label>

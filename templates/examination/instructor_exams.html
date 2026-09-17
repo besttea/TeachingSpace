@@ -21,6 +21,9 @@
         <div class="card-header bg-light d-flex justify-content-between align-items-center">
             <div>
                 <strong>{{ exam.title }}</strong>
+                {% if exam.course %}
+                <span class="badge bg-info ms-2" title="关联课程">{{ exam.course.title }}</span>
+                {% endif %}
                 <span class="badge {% if exam.is_published %}bg-success{% else %}bg-warning text-dark{% endif %} ms-2">
                     {{ exam.is_published|yesno:"已发布,草稿" }}
                 </span>
@@ -56,6 +59,9 @@
                 <div class="me-3">
                     <span class="badge bg-secondary">{{ question.get_question_type_display }}</span>
                     <span class="text-muted small ms-1">{{ question.points }} 分</span>
+                    {% for kp in question.knowledge_points.all %}
+                    <span class="badge bg-info ms-1" title="知识点">{{ kp.title }}</span>
+                    {% endfor %}
                     <span class="d-inline-block ms-2">{{ question.question_text|truncatechars:80 }}</span>
                 </div>
                 <div class="btn-group">

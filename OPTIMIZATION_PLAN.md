@@ -101,6 +101,14 @@
 - [x] **登录限流**（P1，同 1.1）。
 - [x] **教师仪表盘增强**（P3）：考试通过率、练习提交趋势等简单统计卡片。
 
+### 4.8 知识点数据库（P1，用户架构反馈 2026-09-17）
+- [x] **KnowledgePoint 模型**（learning 0002）：课程内知识点库（course/chapter/title/description/difficulty/order，course+title 唯一）✅
+- [x] **AI 提炼 + 人工审核**：教师工作台「知识点库」卡片——按章节提炼（接地链：单元文本 → ClassLib 素材 → 无素材自主发挥）、异步轮询、去重合并、增删改 ✅
+- [x] **题目绑定知识点**：Exercise（training 0002）与 Question（examination 0003）M2M、Exam 可选 course FK；考试创建表单选课程、管理页徽标、题目编辑改绑、克隆复制 ✅
+- [x] **按知识点生成**（机理级去重）：ExamSkill 轮转分派（一题一知识点、先全覆盖后重复）+ 每题注入目标知识点；`generate_exercises` 逐知识点出题；习题 AI 草稿按知识点生成 ✅
+- [x] **ClassLib 分类目录化**：`ClassLib/<分类>/<notebook>.ipynb`（现有七课 → `Python基础程序设计/`），扫描器递归 + 白名单安全保持 ✅
+- [x] 文本相似度统一入口（text_similarity.py，考题/习题/知识点共用）✅
+
 ---
 
 ## 5. 技术债登记表
@@ -194,6 +202,7 @@
 
 > 格式：日期 ｜ 冲刺主题 ｜ 完成条目 ｜ 测试数
 
+- 2026-09-17 ｜ 继续优化 ⑫·知识点数据库架构 ｜ **知识点库落地**（用户架构反馈：出题机理问题根在课程内容无提炼索引）——KnowledgePoint 课程内模型（learning 0002）+ 教师触发 AI 提炼（接地链：单元文本→ClassLib→自主发挥）+ 人工审核 CRUD；**题目绑定知识点**（Exercise M2M / Question M2M / Exam.course FK）+ **按知识点生成**（ExamSkill 轮转分派一题一知识点、generate_exercises 逐知识点、习题草稿按知识点）——机理级去重；**ClassLib 分类目录化**（`<分类>/<notebook>.ipynb`，递归扫描 + 白名单安全）；相似度工具统一；三层迁移 learning→training→examination；核心覆盖率 85% 保持 ｜ 363 |
 - 2026-09-17 ｜ 继续优化 ⑪·用户反馈修复 ｜ **考题去重**（用户反馈：同一道题出五六遍）——根因：逐题生成请求彼此无感知；修复：①每道题的请求注入「已生成题目」负面示例清单；②生成后 SequenceMatcher 相似度过滤（默认 0.85，可调）；③习题批量生成同样修复（`generate_exercises` 传已有题目 + `is_duplicate` 兜底）；**Skill 参数化可调机制**（用户反馈：harness 关键机制未体现在 AI 设置）——新增 `skill_config.py` 三层旋钮（代码默认 ← `AI_SKILL_PARAMS` JSON ← `AI_SKILL_<名>_<键>` 环境变量），Exam/Exercise/Course 三个 Skill 全部接入；**6.4 收尾**：Celery `task_failure` 信号 CRITICAL 日志（进文件日志与 Sentry）；.env.example 同步补齐 4 个缺失变量 ｜ 318 |
 - 2026-09-17 ｜ 继续优化 ⑩·覆盖率与真实度 ｜ **核心模块覆盖率 83%→85%**（executor 传输层全分支：docker 后端错误/哨兵解析/超时传播/旧 dict 格式；question_ai 四题型往返/克隆/沙箱校验；learning/examination 任务直接覆盖；admin 冒烟 + 评阅重算端到端；样例练习命令）；**清理**：根目录陈旧冒烟脚本 test_executor.py / verify_features.py（pytest 已完全覆盖其功能）；**计划如实注记**：4.4 流式=打字机渐进渲染（工具循环与 SSE 不可兼得的取舍）、推荐资源=素材注册表双通道匹配 ｜ 286 |
 - 2026-09-17 ｜ 继续优化 ⑨·工业级收尾 ｜ **考试网页流**（新建考试表单 + 管理页空卷「AI 生成题目」异步轮询，落库逻辑抽 `exam_assembly` 供命令复用）；**全表债务清零**（T1-T31 全部 ✅，1.1-1.4/2.1-2.5/3.1-3.4/6.1-6.6 收口）；**测试基建**（核心模块覆盖率 68%→83%，CI ≥80% 门禁、pre-commit、ruff 决策归档）；**修复**：Celery eager Retry 穿透视图、心跳返回过期值、start_exam 500、save_answer 吞 404、教师打不开学生提交（相似度徽标死代码）、考试草稿预览 404、作文未判分状态；限流数值对齐计划；AI admin 24h 失败率看板；**安全事件处置**：ClassLib 教学材料历史提交含两个 `ghp_` token → git filter-repo 全史清洗 + 首次全量推送 GitHub（建议撤销原 token） ｜ 256 |

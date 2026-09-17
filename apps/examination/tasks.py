@@ -32,12 +32,16 @@ def _retry_countdown(retries: int) -> int:
 @shared_task(bind=True, max_retries=_MAX_RETRIES)
 def generate_exam_questions_task(self, exam_id: int, count: int = 10,
                                  difficulty: str = 'intermediate',
-                                 topic: str = ''):
+                                 topic: str = '',
+                                 knowledge_points=None):
     """Two-phase AI generation of a full exam (ExamSkill) saved as questions.
 
     The exam row must already exist (created by the form or the manage
-    page); this task fills it. Progress is published to the cache under
-    exam_gen_status:<id> for frontend polling.
+    page); this task fills it. When the exam is linked to a course with
+    knowledge points, generation is knowledge-point-driven (one question
+    per KP, distinct-first — no duplicates by construction); otherwise it
+    falls back to autonomous topic generation. Progress is published to
+    the cache under exam_gen_status:<id> for frontend polling.
     """
     from .models import Exam
 
@@ -45,16 +49,24 @@ def generate_exam_questions_task(self, exam_id: int, count: int = 10,
     if exam is None:
         return
 
+    if knowledge_points is None and exam.course_id:
+        knowledge_points = [
+            {'id': kp.id, 'title': kp.title, 'description': kp.description}
+            for kp in exam.course.knowledge_points.all()
+        ]
+
     cache.set(_status_key(exam_id), {'status': 'running'}, _STATUS_TTL)
     try:
         from apps.ai_agents.skills import ExamSkill
         from .exam_assembly import save_generated_questions
 
         result = ExamSkill().run(
-            topic or exam.title, difficulty, count)
+            topic or exam.title, difficulty, count,
+            knowledge_points=knowledge_points)
         questions = result.get('questions', [])
         summary = save_generated_questions(exam, questions)
         summary['code_validated'] = result.get('code_validated', '0/0')
+        summary['duplicates_skipped'] = result.get('duplicates_skipped', 0)
 
         cache.set(_status_key(exam_id), {
             'status': 'done',

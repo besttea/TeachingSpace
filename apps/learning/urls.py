@@ -42,6 +42,13 @@ urlpatterns = [
     path('api/lessons/<int:pk>/mark-complete/', views.mark_lesson_complete, name='lesson-complete'),
     path('api/lessons/<int:pk>/heartbeat/', views.lesson_heartbeat, name='lesson-heartbeat'),
 
+    # Knowledge points (course-scoped; instructor AI extraction + CRUD)
+    path('api/courses/<int:pk>/kp-extract/', views.course_kp_extract, name='course-kp-extract'),
+    path('api/courses/<int:pk>/kp-status/', views.course_kp_status, name='course-kp-status'),
+    path('api/courses/<int:pk>/kp-add/', views.course_kp_add, name='course-kp-add'),
+    path('api/knowledge-points/<int:pk>/update/', views.kp_update, name='kp-update'),
+    path('api/knowledge-points/<int:pk>/delete/', views.kp_delete, name='kp-delete'),
+
     # Jupyter kernel sessions (real notebook execution)
     path('api/lessons/<int:pk>/kernel/execute/', views.kernel_execute, name='kernel-execute'),
     path('api/lessons/<int:pk>/kernel/restart/', views.kernel_restart, name='kernel-restart'),

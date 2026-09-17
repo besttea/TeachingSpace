@@ -61,6 +61,46 @@ class Chapter(models.Model):
         return f"{self.course.title} - {self.title}"
 
 
+class KnowledgePoint(models.Model):
+    """A course-scoped knowledge point — the indexed backbone that
+    exercises and exam questions attach to.
+
+    Extracted from course content (lesson cells / ClassLib material) by
+    the AI knowledge-extraction pipeline (instructor-triggered), then
+    manually reviewed. One knowledge point, one concept.
+    """
+    DIFFICULTY_CHOICES = [
+        ('beginner', 'Beginner'),
+        ('intermediate', 'Intermediate'),
+        ('advanced', 'Advanced'),
+    ]
+
+    course = models.ForeignKey(Course, on_delete=models.CASCADE,
+                               related_name='knowledge_points')
+    chapter = models.ForeignKey(Chapter, on_delete=models.SET_NULL,
+                                null=True, blank=True,
+                                related_name='knowledge_points')
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    difficulty = models.CharField(max_length=20, choices=DIFFICULTY_CHOICES,
+                                  default='beginner')
+    order = models.PositiveIntegerField(default=0)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
+        related_name='knowledge_points_created')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'knowledge_points'
+        ordering = ['order', 'id']
+        unique_together = ['course', 'title']
+        indexes = [models.Index(fields=['course', 'order'])]
+
+    def __str__(self):
+        return f"{self.course.title} - {self.title}"
+
+
 class Lesson(models.Model):
     """Notebook-style lesson container"""
     STATUS_CHOICES = [

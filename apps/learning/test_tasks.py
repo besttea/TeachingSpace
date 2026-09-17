@@ -117,3 +117,100 @@ class CourseDesignTaskTests(TestCase):
         status = course_design_status(self.course.id)
         self.assertEqual(status['status'], 'error')
         self.assertEqual(self.course.chapters.count(), 0)
+
+
+class KPExtractTaskTests(TestCase):
+    """Knowledge-point extraction task: grounding chain, merge dedup,
+    missing rows, failure atomicity."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.instructor = User.objects.create_user(
+            username='teacher', email='t@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.course = Course.objects.create(
+            title='提炼课程', slug='kp-task', instructor=self.instructor,
+            difficulty_level='beginner')
+
+    def _add_chapter(self, title, order, markdown=''):
+        from .models import Cell
+        chapter = Chapter.objects.create(course=self.course, title=title,
+                                         order=order)
+        if markdown:
+            lesson = Lesson.objects.create(chapter=chapter, title='单元',
+                                           order=1, status='published')
+            Cell.objects.create(lesson=lesson, cell_type='text', order=0,
+                                data={'markdown': markdown})
+        return chapter
+
+    @mock.patch('apps.chat.notebook_tools.find_related_sections', return_value='')
+    @mock.patch('apps.ai_agents.skills.KnowledgeSkill')
+    def test_extract_merges_and_dedups_across_chapters(self, skill_cls, _find):
+        from .tasks import extract_knowledge_points_task, kp_extract_status
+        self._add_chapter('第1章 列表', 1, '列表是可变的，支持索引。' * 20)
+        self._add_chapter('第2章 元组', 2, '元组是不可变的序列。' * 20)
+        skill = skill_cls.return_value
+
+        def fake_extract(chapter_title, chapter_text='', source_material=''):
+            if chapter_title.startswith('第1章'):
+                return [{'title': '列表', 'description': 'x',
+                         'difficulty': 'beginner'},
+                        {'title': '列表推导式', 'description': 'x',
+                         'difficulty': 'intermediate'}]
+            # 第2章: 一条与第1章重复, 一条新
+            return [{'title': '列表', 'description': 'x',
+                     'difficulty': 'beginner'},
+                    {'title': '元组不可变性', 'description': 'x',
+                     'difficulty': 'beginner'}]
+        skill.extract.side_effect = fake_extract
+
+        extract_knowledge_points_task.delay(self.course.id)
+        status = kp_extract_status(self.course.id)
+        self.assertEqual(status['status'], 'done')
+        self.assertEqual(status['points_created'], 3)
+        self.assertEqual(status['duplicates_skipped'], 1)
+        self.assertEqual(status['chapters_processed'], 2)
+        titles = set(self.course.knowledge_points.values_list('title', flat=True))
+        self.assertEqual(titles, {'列表', '列表推导式', '元组不可变性'})
+
+    @mock.patch('apps.chat.notebook_tools.find_related_sections', return_value='')
+    @mock.patch('apps.ai_agents.skills.KnowledgeSkill')
+    def test_thin_chapter_grounds_in_classlib(self, skill_cls, find_mock):
+        from .tasks import extract_knowledge_points_task
+        find_mock.return_value = '【素材：第一课 · 1.1】\n数字常量……'
+        self._add_chapter('第1章 数字', 1, markdown='')  # no text cells
+        skill = skill_cls.return_value
+        skill.extract.return_value = [{'title': '数字常量', 'description': 'x',
+                                       'difficulty': 'beginner'}]
+        extract_knowledge_points_task.delay(self.course.id)
+        # grounded call: find_related_sections was asked, and its result
+        # reached the skill as source material
+        self.assertTrue(find_mock.called)
+        _title, _text, source_material = skill.extract.call_args[0]
+        self.assertIn('数字常量', source_material)
+        self.assertEqual(self.course.knowledge_points.count(), 1)
+
+    @mock.patch('apps.ai_agents.skills.KnowledgeSkill')
+    def test_missing_course_noop(self, skill_cls):
+        from django.core.cache import cache
+        from .tasks import extract_knowledge_points_task, kp_extract_status
+        cache.clear()
+        result = extract_knowledge_points_task.delay(9999)
+        self.assertIsNone(result.result)
+        self.assertEqual(kp_extract_status(9999), {'status': 'none'})
+        self.assertFalse(skill_cls.return_value.extract.called)
+
+    @mock.patch('apps.chat.notebook_tools.find_related_sections', return_value='')
+    @mock.patch('apps.ai_agents.skills.KnowledgeSkill')
+    def test_chapter_failure_skips_chapter_not_task(self, skill_cls, _find):
+        """One broken chapter must not abort the whole extraction."""
+        from .tasks import extract_knowledge_points_task, kp_extract_status
+        self._add_chapter('第1章 列表', 1, '内容' * 100)
+        skill_cls.return_value.extract.side_effect = RuntimeError('boom')
+        extract_knowledge_points_task.delay(self.course.id)
+        status = kp_extract_status(self.course.id)
+        self.assertEqual(status['status'], 'done')
+        self.assertEqual(status['chapters_processed'], 0)
+        self.assertEqual(status['points_created'], 0)
+        self.assertEqual(self.course.knowledge_points.count(), 0)

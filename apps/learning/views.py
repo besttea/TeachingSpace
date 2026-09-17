@@ -12,7 +12,10 @@ import json
 import logging
 from django.core.serializers.json import DjangoJSONEncoder
 
-from .models import Course, Chapter, Lesson, Cell, CellVersion, Enrollment, LessonProgress
+from .models import (
+    Cell, CellVersion, Chapter, Course, Enrollment, KnowledgePoint, Lesson,
+    LessonProgress,
+)
 from .cell_handlers import get_handler
 from apps.core.rate_limit import rate_limit
 from apps.core.cache_utils import bump_content_version
@@ -98,6 +101,10 @@ class CourseDetailView(DetailView):
                 course=self.object,
                 is_active=True
             ).exists()
+
+            if context['can_edit']:
+                context['knowledge_points'] = (
+                    self.object.knowledge_points.select_related('chapter'))
 
             enrollment = None
             try:
@@ -1094,3 +1101,147 @@ def mark_lesson_complete(request, pk):
         raise
     except Exception as e:
         return _error_response(e)
+
+
+# ---------------------------------------------------------------------------
+# Knowledge points (course-scoped; instructor-triggered AI extraction + CRUD)
+# ---------------------------------------------------------------------------
+
+
+def _can_manage_course(user, course):
+    return user == course.instructor or user.is_staff
+
+
+def _kp_response_ok(data, status=200):
+    return JsonResponse({'success': True, **data}, status=status)
+
+
+@login_required
+@require_http_methods(["POST"])
+@rate_limit('kp_extract', limit=20, window_seconds=3600)
+def course_kp_extract(request, pk):
+    """AI-extract knowledge points for one course (async Celery + polling)."""
+    course = get_object_or_404(Course, pk=pk)
+    if not _can_manage_course(request.user, course):
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+
+    from apps.ai_agents.ai_config import is_configured
+    if not is_configured():
+        return JsonResponse({'error': 'AI 服务未配置（缺少 API 密钥）'}, status=400)
+
+    from celery import current_app
+    from .tasks import extract_knowledge_points_task
+
+    extract_knowledge_points_task.delay(course.id)
+    if current_app.conf.task_always_eager:
+        from .tasks import kp_extract_status
+        return _kp_response_ok({
+            'queued': False,
+            'status': kp_extract_status(course.id),
+        })
+    return _kp_response_ok({
+        'queued': True,
+        'message': '提炼任务已提交，前端将轮询进度',
+    })
+
+
+@login_required
+@require_http_methods(["GET"])
+def course_kp_status(request, pk):
+    """Poll AI knowledge-point extraction progress."""
+    course = get_object_or_404(Course, pk=pk)
+    if not _can_manage_course(request.user, course):
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    from .tasks import kp_extract_status
+    status = kp_extract_status(course.id)
+    if status.get('status') == 'done':
+        status['kp_count'] = course.knowledge_points.count()
+    return _kp_response_ok({'status': status})
+
+
+@login_required
+@require_http_methods(["POST"])
+def course_kp_add(request, pk):
+    """Manually add a knowledge point to a course (instructor review)."""
+    course = get_object_or_404(Course, pk=pk)
+    if not _can_manage_course(request.user, course):
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+
+    try:
+        data = json.loads(request.body or '{}')
+    except ValueError:
+        data = {}
+    title = (data.get('title') or '').strip()
+    description = (data.get('description') or '').strip()
+    difficulty = data.get('difficulty', 'beginner')
+    chapter_id = data.get('chapter_id')
+
+    if not title:
+        return JsonResponse({'error': '知识点名称不能为空'}, status=400)
+    if difficulty not in ('beginner', 'intermediate', 'advanced'):
+        difficulty = 'beginner'
+    chapter = Chapter.objects.filter(pk=chapter_id, course=course).first()
+
+    from django.db import IntegrityError
+    try:
+        kp = KnowledgePoint.objects.create(
+            course=course, chapter=chapter, title=title[:200],
+            description=description, difficulty=difficulty,
+            order=course.knowledge_points.count() + 1,
+            created_by=request.user)
+    except IntegrityError:
+        return JsonResponse({'error': '该知识点已存在'}, status=400)
+    return _kp_response_ok({
+        'kp': {'id': kp.id, 'title': kp.title, 'description': kp.description,
+               'difficulty': kp.difficulty},
+        'message': f'已添加知识点《{kp.title}》',
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def kp_update(request, pk):
+    """Edit a knowledge point (title/description/difficulty/chapter)."""
+    kp = get_object_or_404(KnowledgePoint, pk=pk)
+    if not _can_manage_course(request.user, kp.course):
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+
+    try:
+        data = json.loads(request.body or '{}')
+    except ValueError:
+        data = {}
+    title = (data.get('title') or '').strip()
+    if not title:
+        return JsonResponse({'error': '知识点名称不能为空'}, status=400)
+
+    kp.title = title[:200]
+    kp.description = (data.get('description') or '').strip()
+    if data.get('difficulty') in ('beginner', 'intermediate', 'advanced'):
+        kp.difficulty = data['difficulty']
+    chapter = Chapter.objects.filter(pk=data.get('chapter_id'),
+                                     course=kp.course).first()
+    kp.chapter = chapter or kp.chapter
+
+    from django.db import IntegrityError
+    try:
+        kp.save()
+    except IntegrityError:
+        return JsonResponse({'error': '该知识点已存在'}, status=400)
+    return _kp_response_ok({
+        'kp': {'id': kp.id, 'title': kp.title, 'description': kp.description,
+               'difficulty': kp.difficulty},
+        'message': f'知识点已更新：{kp.title}',
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def kp_delete(request, pk):
+    """Delete a knowledge point (M2M links to exercises/questions clear
+    automatically)."""
+    kp = get_object_or_404(KnowledgePoint, pk=pk)
+    if not _can_manage_course(request.user, kp.course):
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    title = kp.title
+    kp.delete()
+    return _kp_response_ok({'message': f'已删除知识点《{title}》'})

@@ -1,7 +1,7 @@
 from django.db import models
 from django.conf import settings
 from django.utils.text import slugify
-from apps.learning.models import Course
+from apps.learning.models import Course, KnowledgePoint
 
 
 class Exercise(models.Model):
@@ -17,6 +17,9 @@ class Exercise(models.Model):
     description = models.TextField()
     difficulty = models.CharField(max_length=20, choices=DIFFICULTY_CHOICES, default='beginner')
     course = models.ForeignKey(Course, on_delete=models.SET_NULL, null=True, blank=True, related_name='exercises')
+    # The knowledge points this exercise exercises (course-scoped KP library)
+    knowledge_points = models.ManyToManyField(KnowledgePoint, blank=True,
+                                              related_name='exercises')
     points = models.IntegerField(default=10)
     time_limit_seconds = models.IntegerField(null=True, blank=True)
 

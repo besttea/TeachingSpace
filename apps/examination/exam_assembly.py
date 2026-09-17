@@ -42,6 +42,14 @@ def save_generated_questions(exam, questions: list) -> dict:
                 difficulty='medium',
                 order=index,
             )
+            # Bind the assigned knowledge point (guarded: the KP may have
+            # been deleted between queue and run).
+            kp_id = q.get('_knowledge_point_id')
+            if kp_id:
+                from .models import KnowledgePoint
+                kp = KnowledgePoint.objects.filter(pk=kp_id).first()
+                if kp is not None:
+                    question.knowledge_points.add(kp)
             if q_type == 'multiple_choice':
                 MultipleChoiceQuestion.objects.create(
                     question=question,

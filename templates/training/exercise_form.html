@@ -27,6 +27,15 @@
                     <input type="text" class="form-control form-control-sm" id="aiTopic"
                            placeholder="如：字符串反转、斐波那契数列">
                 </div>
+                <div class="col-md-3">
+                    <label class="form-label small mb-1">按知识点生成（可选，覆盖主题）</label>
+                    <select class="form-select form-select-sm" id="aiKnowledgePoint">
+                        <option value="">— 自由主题 —</option>
+                        {% for kp in knowledge_points %}
+                        <option value="{{ kp.id }}">{{ kp.course.title }}: {{ kp.title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
                 <div class="col-md-2">
                     <label class="form-label small mb-1">难度</label>
                     <select class="form-select form-select-sm" id="aiDifficulty">
@@ -35,13 +44,13 @@
                         <option value="advanced">高级</option>
                     </select>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <button type="button" class="btn btn-sm btn-primary w-100" id="aiDraftBtn"
                             onclick="generateAiDraft()">
                         <i class="bi bi-stars"></i> AI 生成草稿
                     </button>
                 </div>
-                <div class="col-md-2">
+                <div class="col-md-12">
                     <small class="text-muted" id="aiDraftStatus">生成后自动填充表单，人工审阅后点「创建练习」</small>
                 </div>
             </div>
@@ -76,11 +85,20 @@
                     <select class="form-select" name="course_id">
                         <option value="">不关联课程</option>
                         {% for course in courses %}
-                        <option value="{{ course.id }}">{{ course.title }}</option>
+                        <option value="{{ course.id }}" {% if exercise.course_id == course.id %}selected{% endif %}>{{ course.title }}</option>
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-md-6"></div>
+                <div class="col-md-6">
+                    <label class="form-label">知识点（可选，多选；来自你名下课程的知识点库）</label>
+                    <select class="form-select" name="knowledge_points" multiple size="4">
+                        {% for kp in knowledge_points %}
+                        <option value="{{ kp.id }}" {% if kp.id in selected_kp_ids %}selected{% endif %}>
+                            {{ kp.course.title }}: {{ kp.title }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
 
                 <div class="col-12">
                     <label class="form-label">题目描述 *（支持 Markdown）</label>
@@ -145,7 +163,9 @@
     async function generateAiDraft() {
         const topic = document.getElementById('aiTopic').value.trim();
         const difficulty = document.getElementById('aiDifficulty').value;
-        if (!topic) { alert('请先输入练习主题'); return; }
+        const kpSelect = document.getElementById('aiKnowledgePoint');
+        const knowledgePointId = kpSelect ? kpSelect.value : '';
+        if (!topic && !knowledgePointId) { alert('请先输入练习主题或选择知识点'); return; }
 
         const btn = document.getElementById('aiDraftBtn');
         const status = document.getElementById('aiDraftStatus');
@@ -157,7 +177,8 @@
             const response = await fetch('/training/api/exercises/ai-draft/', {
                 method: 'POST',
                 headers: {'X-CSRFToken': csrftoken, 'Content-Type': 'application/json'},
-                body: JSON.stringify({topic: topic, difficulty: difficulty})
+                body: JSON.stringify({topic: topic, difficulty: difficulty,
+                                      knowledge_point_id: knowledgePointId})
             });
             const data = await response.json();
             if (!data.success) {
@@ -182,6 +203,16 @@
                     if (penaltyInput) penaltyInput.value = hint.points_penalty || (n + 1);
                 }
             });
+
+            // 按知识点生成的草稿：自动勾选该知识点
+            if (data.knowledge_point_id) {
+                const kpSelect = document.querySelector('select[name="knowledge_points"]');
+                if (kpSelect) {
+                    Array.from(kpSelect.options).forEach(function (option) {
+                        option.selected = (option.value === String(data.knowledge_point_id));
+                    });
+                }
+            }
 
             status.innerHTML = data.validated
                 ? '<span class="text-success">✓ 已填入表单（沙箱验证通过：' + escapeHtml(data.validation_message) + '）</span>'

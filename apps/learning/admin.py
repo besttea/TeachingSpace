@@ -1,11 +1,21 @@
 from django.contrib import admin
-from .models import Course, Chapter, Lesson, Cell, CellVersion, Video, Enrollment, LessonProgress
+from .models import (
+    Cell, CellVersion, Chapter, Course, Enrollment, KnowledgePoint, Lesson,
+    LessonProgress, Video,
+)
 
 
 class ChapterInline(admin.TabularInline):
     model = Chapter
     extra = 1
     fields = ('title', 'order')
+
+
+@admin.register(KnowledgePoint)
+class KnowledgePointAdmin(admin.ModelAdmin):
+    list_display = ('title', 'course', 'chapter', 'difficulty', 'order', 'created_by')
+    list_filter = ('course', 'difficulty')
+    search_fields = ('title', 'description', 'course__title')
 
 
 class CellInline(admin.StackedInline):

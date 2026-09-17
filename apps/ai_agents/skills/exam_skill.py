@@ -13,30 +13,32 @@ similarity filter drops near-duplicates regardless of model behavior.
 """
 
 import logging
-import re
-
-from difflib import SequenceMatcher
 
 from ..harness import HarnessCore
 from ..skill_config import skill_params
 from .base import Skill
+from .text_similarity import is_near_duplicate, normalize_text
 
 logger = logging.getLogger(__name__)
 
 _QUESTION_SYSTEM = 'You are an expert examiner. Return JSON only.'
 
-_WORD_RE = re.compile(r'[\W_]+', re.UNICODE)
 
-
-def _plan_prompt(topic, difficulty, count) -> str:
+def _plan_prompt(topic, difficulty, count, knowledge_points=None) -> str:
     # NOTE: f-string, not str.format — the JSON braces would clash with
     # format placeholders (KeyError: '"types"').
-    return (
+    prompt = (
         f"Plan a {difficulty} exam on '{topic}' with {count} questions. "
         f"Return JSON ONLY: "
         f'{{"types": ["multiple_choice", "code", "true_false", "essay", ...]}} '
         f"Exactly {count} entries. Mix: mostly multiple_choice/true_false, "
         f"at least one code and one essay. Order: easy first.")
+    if knowledge_points:
+        prompt += (
+            "\n\nThe exam MUST cover these knowledge points, one per question, "
+            "never repeating a knowledge point until all are covered: "
+            + '; '.join(kp['title'] for kp in knowledge_points))
+    return prompt
 
 
 _TYPE_CONTRACTS = {
@@ -62,20 +64,13 @@ _TYPE_CONTRACTS = {
 
 
 def _normalize(text: str) -> str:
-    """Lowercased alphanumeric tokens — similarity input."""
-    return _WORD_RE.sub(' ', text or '').lower()
+    """Lowercased alphanumeric tokens — similarity input (shared util)."""
+    return normalize_text(text)
 
 
 def _is_duplicate(candidate: dict, existing: list, threshold: float) -> bool:
     """True when the candidate's text is a near-duplicate of an accepted one."""
-    cand = _normalize(candidate.get('text', ''))
-    if not cand:
-        return True  # empty question text is unusable
-    for other in existing:
-        ratio = SequenceMatcher(None, cand, _normalize(other.get('text', ''))).ratio()
-        if ratio >= threshold:
-            return True
-    return False
+    return is_near_duplicate(candidate.get('text', ''), existing, threshold)
 
 
 def _already_generated_context(existing: list, limit: int = 10) -> str:
@@ -96,14 +91,16 @@ class ExamSkill(Skill):
     def __init__(self):
         self.params = skill_params(self.name)
 
-    def run(self, topic, difficulty='intermediate', count=10) -> dict:
+    def run(self, topic, difficulty='intermediate', count=10,
+            knowledge_points=None) -> dict:
         params = self.params
         count = max(1, min(count, params['max_questions']))
+        knowledge_points = knowledge_points or []
 
         # ---- Phase 1 (planner): question type distribution ----
         try:
             plan = HarnessCore.call(
-                _plan_prompt(topic, difficulty, count),
+                _plan_prompt(topic, difficulty, count, knowledge_points),
                 role='planner', system_prompt=_QUESTION_SYSTEM,
                 temperature=params['plan_temperature'],
                 max_tokens=params['plan_max_tokens'], json_mode=True)
@@ -114,15 +111,23 @@ class ExamSkill(Skill):
         types = [t for t in types[:count] if t in _TYPE_CONTRACTS]
 
         # ---- Phase 2 (worker): one short request per question ----
+        # Knowledge-point-driven distribution: questions cycle through the
+        # KPs distinct-first (index % len), so no two questions share a KP
+        # until every KP is covered — duplicates are impossible by design.
         questions = []
         duplicates_skipped = 0
         validated_code = 0
         code_total = 0
         for index, q_type in enumerate(types):
+            knowledge_point = (knowledge_points[index % len(knowledge_points)]
+                               if knowledge_points else None)
             question = self._generate_question(topic, difficulty, q_type, index,
-                                               questions)
+                                               questions,
+                                               knowledge_point=knowledge_point)
             if not question:
                 continue
+            if knowledge_point:
+                question['_knowledge_point_id'] = knowledge_point.get('id')
             if params['dedup_enabled'] and _is_duplicate(
                     question, questions, params['dedup_threshold']):
                 logger.warning('question %d dropped as near-duplicate: %s',
@@ -155,11 +160,16 @@ class ExamSkill(Skill):
         return True, ''
 
     def _generate_question(self, topic, difficulty, q_type, index,
-                           existing) -> dict:
+                           existing, knowledge_point=None) -> dict:
         prompt = (
             f'Exam topic: {topic}（{difficulty}）. Create ONE {q_type} question '
-            f'(#{index + 1}). Return JSON ONLY:\n{_TYPE_CONTRACTS[q_type]}'
-            f'{_already_generated_context(existing)}')
+            f'(#{index + 1}). Return JSON ONLY:\n{_TYPE_CONTRACTS[q_type]}')
+        if knowledge_point:
+            prompt += (
+                f'\nTarget knowledge point (the question MUST test exactly '
+                f'this): {knowledge_point["title"]}'
+                f' — {knowledge_point.get("description", "")}')
+        prompt += _already_generated_context(existing)
         try:
             result = HarnessCore.call(
                 prompt, role='worker', system_prompt=_QUESTION_SYSTEM,

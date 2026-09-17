@@ -2,6 +2,7 @@ from django.db import models
 from django.conf import settings
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
+from apps.learning.models import Course, KnowledgePoint
 import random
 import uuid
 
@@ -39,6 +40,11 @@ class Exam(models.Model):
         related_name='created_exams',
         verbose_name="创建者"
     )
+    # Optional course link: enables knowledge-point-driven generation
+    # (the exam's questions draw from the course's knowledge points).
+    course = models.ForeignKey(
+        Course, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='exams', verbose_name="关联课程")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
 
@@ -96,6 +102,10 @@ class Question(models.Model):
         validators=[MinValueValidator(1)],
         verbose_name="分值"
     )
+    # The knowledge points this question tests (course-scoped KP library)
+    knowledge_points = models.ManyToManyField(
+        KnowledgePoint, blank=True, related_name='questions',
+        verbose_name="知识点")
     order = models.IntegerField(default=0, verbose_name="题目顺序")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
 

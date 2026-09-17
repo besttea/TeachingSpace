@@ -43,9 +43,20 @@ class Command(BaseCommand):
         skill = ExerciseSkill()
         created = validated = skipped = 0
         existing = []
-        for i in range(count):
-            self.stdout.write(f'Generating exercise {i + 1}/{count} on "{topic}"...')
-            result = skill.run(topic, difficulty, existing=existing)
+        # Knowledge-point-driven mode: one exercise per KP of the course's
+        # KP library (user feedback 2026-09-17); autonomous topic loop only
+        # when the course has no knowledge points.
+        knowledge_points = list(course.knowledge_points.all()) if course else []
+        if knowledge_points:
+            targets = [(kp.title, kp.difficulty, kp) for kp in knowledge_points]
+        else:
+            targets = [(topic, difficulty, None) for _ in range(count)]
+
+        for i, (target_topic, target_difficulty, kp) in enumerate(targets):
+            self.stdout.write(f'Generating exercise {i + 1}/{len(targets)} '
+                              f'on "{target_topic}"...')
+            result = skill.run(target_topic, target_difficulty,
+                               existing=existing)
             data = result['exercise']
             test_cases = data.get('test_cases') or []
             if not test_cases:
@@ -66,15 +77,17 @@ class Command(BaseCommand):
                     f'  ⚠ 验证未通过（{result["validation_message"]}）——仍会保存，请人工复核'))
 
             exercise = Exercise.objects.create(
-                title=data.get('title', f'{topic} 练习 {i + 1}'),
+                title=data.get('title', f'{target_topic} 练习 {i + 1}'),
                 description=data.get('description', ''),
-                difficulty=difficulty,
+                difficulty=target_difficulty,
                 course=course,
                 starter_code=data.get('starter_code', ''),
                 solution_code=data.get('solution_code', ''),
                 test_cases=test_cases,
                 created_by=creator,
             )
+            if kp is not None:
+                exercise.knowledge_points.add(kp)
             existing.append(data)
             for hint in data.get('hints', []):
                 Hint.objects.create(
@@ -86,8 +99,8 @@ class Command(BaseCommand):
             created += 1
 
         self.stdout.write(self.style.SUCCESS(
-            f'Done. {created}/{count} exercises created ({validated} sandbox-validated, '
-            f'{skipped} duplicates skipped).'))
+            f'Done. {created}/{len(targets)} exercises created '
+            f'({validated} sandbox-validated, {skipped} duplicates skipped).'))
 
     def _resolve_creator(self, options):
         username = options['creator']

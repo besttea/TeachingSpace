@@ -50,6 +50,14 @@ DEFAULTS = {
         'max_lessons': 30,
         'max_cells_per_lesson': 10,
     },
+    'knowledge_extraction': {
+        'temperature': 0.2,
+        'max_tokens': 800,
+        'max_points_per_chapter': 8,
+        'chapter_char_cap': 6000,   # teaching text truncated before the call
+        'dedup_enabled': True,
+        'dedup_threshold': 0.85,
+    },
 }
 
 

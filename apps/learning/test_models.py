@@ -1,11 +1,12 @@
 """Model-layer misc coverage: __str__/save hooks, progress properties and
 atomic cell-execution tracking (OPTIMIZATION_PLAN 6.5 coverage gate)."""
 
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 
 from apps.accounts.models import User
 from .models import (
-    Cell, CellVersion, Chapter, Course, Enrollment, Lesson,
+    Cell, CellVersion, Chapter, Course, Enrollment, KnowledgePoint, Lesson,
     LessonProgress, Video,
 )
 
@@ -121,3 +122,57 @@ class ModelMiscTests(TestCase):
                                        difficulty_level='beginner')
         self.assertTrue(course.slug)  # fallback slug assigned
         self.assertNotEqual(course.slug, '')
+
+
+class KnowledgePointModelTests(TestCase):
+    def setUp(self):
+        self.instructor = User.objects.create_user(
+            username='teacher', email='t@example.com',
+            password='StrongPass123!', user_type='instructor')
+        self.course = Course.objects.create(
+            title='知识点课程', slug='kp-course', instructor=self.instructor,
+            difficulty_level='beginner')
+        self.chapter = Chapter.objects.create(course=self.course,
+                                              title='第1章', order=1)
+
+    def _make(self, title='列表推导式', **kwargs):
+        defaults = dict(course=self.course, chapter=self.chapter, title=title)
+        defaults.update(kwargs)
+        return KnowledgePoint.objects.create(**defaults)
+
+    def test_duplicate_title_in_course_raises(self):
+        self._make()
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                self._make()
+
+    def test_same_title_in_different_course_allowed(self):
+        self._make()
+        other_course = Course.objects.create(
+            title='另一门课', slug='other-course', instructor=self.instructor,
+            difficulty_level='beginner')
+        kp = self._make(course=other_course)
+        self.assertEqual(kp.title, '列表推导式')
+
+    def test_course_delete_cascades(self):
+        kp = self._make()
+        self.course.delete()
+        self.assertFalse(KnowledgePoint.objects.filter(pk=kp.id).exists())
+
+    def test_chapter_delete_nulls_chapter(self):
+        kp = self._make()
+        self.chapter.delete()
+        kp.refresh_from_db()
+        self.assertIsNone(kp.chapter)
+        self.assertEqual(kp.course, self.course)
+
+    def test_default_ordering(self):
+        second = self._make('变量作用域', order=2)
+        first = self._make('print 函数', order=1)
+        self.assertEqual(list(KnowledgePoint.objects.values_list('id', flat=True)),
+                         [first.id, second.id])
+
+    def test_str_and_reverse_relation(self):
+        kp = self._make()
+        self.assertEqual(str(kp), '知识点课程 - 列表推导式')
+        self.assertIn(kp, list(self.course.knowledge_points.all()))

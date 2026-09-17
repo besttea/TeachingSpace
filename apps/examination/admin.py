@@ -21,12 +21,12 @@ class ExamAdmin(admin.ModelAdmin):
         'title', 'duration_minutes', 'passing_score', 'max_attempts',
         'is_published', 'question_count', 'total_points', 'created_by', 'created_at'
     ]
-    list_filter = ['is_published', 'created_at', 'randomize_questions']
+    list_filter = ['is_published', 'created_at', 'randomize_questions', 'course']
     search_fields = ['title', 'description']
     readonly_fields = ['created_at', 'updated_at', 'total_points_display']
     fieldsets = (
         ('基本信息', {
-            'fields': ('title', 'description', 'created_by')
+            'fields': ('title', 'description', 'course', 'created_by')
         }),
         ('考试设置', {
             'fields': (
@@ -100,9 +100,11 @@ class QuestionAdmin(admin.ModelAdmin):
     list_filter = ['question_type', 'exam', 'created_at']
     search_fields = ['question_text', 'exam__title']
     readonly_fields = ['created_at']
+    filter_horizontal = ('knowledge_points',)
     fieldsets = (
         ('基本信息', {
-            'fields': ('exam', 'question_type', 'question_text', 'points', 'order')
+            'fields': ('exam', 'question_type', 'question_text', 'points',
+                       'order', 'knowledge_points')
         }),
         ('时间信息', {
             'fields': ('created_at',),
