@@ -11,9 +11,10 @@
     }
 
     .code-editor-container {
-        border: 1px solid #dee2e6;
-        border-radius: 8px;
-        background: #282c34;
+        border: 1px solid #d8e2d8;
+        border-left: 3px solid #a5d6a7;
+        border-radius: 4px;
+        background: #ffffff;
         min-height: 400px;
     }
 
@@ -23,8 +24,9 @@
         padding: 1rem;
         font-family: 'Courier New', Consolas, Monaco, monospace;
         font-size: 14px;
-        background: #282c34;
-        color: #abb2bf;
+        background: #ffffff;
+        color: #24292f;
+        caret-color: #2e7d32;
         border: none;
         resize: vertical;
     }
@@ -33,10 +35,14 @@
         outline: none;
     }
 
+    .code-editor::placeholder {
+        color: #9aa5b1;
+    }
+
     .output-panel {
-        background: #f8f9fa;
+        background: #f6fbf7;
         border: 1px solid #dee2e6;
-        border-radius: 8px;
+        border-radius: 4px;
         padding: 1rem;
         min-height: 200px;
         max-height: 400px;
@@ -47,7 +53,7 @@
     }
 
     .output-panel.success {
-        border-left: 4px solid #28a745;
+        border-left: 4px solid #2e7d32;
     }
 
     .output-panel.error {
