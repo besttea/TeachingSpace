@@ -224,3 +224,30 @@ class CellVideoTaskTests(TestCase):
         from .tasks import generate_cell_video_task
         result = generate_cell_video_task.delay(9999, 'x')
         self.assertIsNone(result.result)
+
+
+class EditorAIToolbarRenderTests(TestCase):
+    """The four AI buttons render per cell type on the lesson edit page."""
+
+    def test_all_four_toolbar_entries_render(self):
+        instructor = _make_user('teacher')
+        course = Course.objects.create(
+            title='渲染检查', slug='render-check', instructor=instructor,
+            difficulty_level='beginner')
+        chapter = Chapter.objects.create(course=course, title='第1章', order=1)
+        lesson = Lesson.objects.create(chapter=chapter, title='单元1', order=1)
+        for order, cell_type in enumerate(('text', 'code', 'image', 'video')):
+            Cell.objects.create(
+                lesson=lesson, cell_type=cell_type, order=order,
+                data={'markdown': '', 'source': '', 'url': '',
+                      'source_type': 'youtube'})
+        self.client.force_login(instructor)
+        response = self.client.get(reverse(
+            'learning:lesson-edit', args=[lesson.id]))
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode('utf-8')
+        self.assertIn('AI 生成课程内容', html)
+        self.assertIn('AI 生成内容', html)        # text cell
+        self.assertIn('AI 生成代码', html)        # code cell
+        self.assertIn('AI 生成配图', html)        # image cell
+        self.assertIn('AI 生成动画', html)        # video cell
