@@ -495,6 +495,17 @@
 
 {% block extra_js %}
 {{ cells_json|json_script:"cells-data" }}
+<script>
+// 开发辅助：任何未捕获的 JS 错误弹窗可见化（快速定位控制台红叉）
+window.addEventListener('error', function (event) {
+    if (event.message) {
+        console.error(event.message, event.filename, event.lineno);
+        alert('页面脚本错误：' + event.message +
+              '\n位置：' + (event.filename || '') + ':' + event.lineno +
+              '\n请截图或复制此信息反馈。');
+    }
+});
+</script>
 <script type="module">
 // CodeMirror 6 (Jupyter-style syntax highlighting for code cells)
 import {EditorView, basicSetup} from "https://cdn.jsdelivr.net/npm/codemirror@6.0.1/+esm";
