@@ -15,9 +15,12 @@ the worker's process-init signal — task modules import Django models,
 which must not happen before ``django.setup()``.
 """
 
+import logging
 import os
 
 from celery import Celery
+
+logger = logging.getLogger('celery.tasks')
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.development')
 
@@ -38,11 +41,22 @@ def _setup_worker(**kwargs):
     app.autodiscover_tasks()
 
 
+def _on_task_failure(sender=None, task_id=None, exception=None, args=None,
+                     kwargs=None, **kw):
+    """Log every failed task at CRITICAL (OPTIMIZATION_PLAN 6.4: task
+    failure alerting). The production file handler and — when SENTRY_DSN is
+    configured — the Sentry logging integration both capture this level."""
+    logger.critical(
+        'Celery task FAILED: id=%s name=%s exc=%r args=%r kwargs=%r',
+        task_id, getattr(sender, 'name', sender), exception, args, kwargs)
+
+
 if os.environ.get('CELERY_WORKER', '').lower() in ('1', 'true'):
     # In-process worker shortcut (e.g. Windows without the CLI):
     #   CELERY_WORKER=1 python -c "from config.celery import app; app.worker_main(['worker', '--pool=solo', '-l', 'info'])"
     pass
 else:
-    from celery.signals import worker_process_init
+    from celery.signals import task_failure, worker_process_init
 
     worker_process_init.connect(_setup_worker)
+    task_failure.connect(_on_task_failure, weak=False)

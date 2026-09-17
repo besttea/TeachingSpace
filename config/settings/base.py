@@ -2,7 +2,9 @@
 Django settings for teaching_space project - Base settings.
 """
 
+import json
 from pathlib import Path
+
 from decouple import config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -251,3 +253,9 @@ AI_COST_LIMIT_DAILY = config('AI_COST_LIMIT_DAILY', default=50.00, cast=float)
 # Cost estimation prices (USD per 1M tokens) — used by AIGenerationHistory
 AI_COST_INPUT_PER_MTOK = config('AI_COST_INPUT_PER_MTOK', default=3.0, cast=float)
 AI_COST_OUTPUT_PER_MTOK = config('AI_COST_OUTPUT_PER_MTOK', default=15.0, cast=float)
+# Skill-level tunable parameters (harness skills read these via
+# apps.ai_agents.skill_config.skill_params). JSON object keyed by skill
+# name, e.g. {"exam_generation": {"temperature": 0.5, "max_questions": 20}}.
+# Per-knob env vars AI_SKILL_<NAME>_<KEY> take precedence.
+AI_SKILL_PARAMS = config(
+    'AI_SKILL_PARAMS', default='', cast=lambda v: json.loads(v) if v.strip() else {})

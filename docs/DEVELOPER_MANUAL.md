@@ -155,8 +155,27 @@ celery -A config worker -l info               # Linux
 | `AI_TEMPERATURE` | 0.7 | 生成温度 |
 | `AI_CACHE_ENABLED` | True | 相同 prompt+model 24h 内命中缓存 |
 | `AI_COST_LIMIT_DAILY` | 50.00 | 每日成本上限（USD，0 表示不限）；按 `AI_COST_INPUT/OUTPUT_PER_MTOK`（默认 3/15）估算 |
+| `AI_SKILL_PARAMS` | （空） | **Skill 参数化可调机制**：JSON 对象按 skill 名分组覆盖默认旋钮（见下） |
 
 **切换模型示例**：`.env` 中设 `AI_PROVIDER=deepseek` 并确保环境变量 `deepseek_Api` 存在——聊天助手、全部 Agent、作文评分自动跟随，无需改代码。添加新供应商：在 `config/settings/base.py` 的 `AI_PROVIDERS` 注册表增加条目即可。
+
+**Skill 参数化可调机制**（harness 架构的调节旋钮）：所有 Skill 的温度/max_tokens/上限/验证开关
+集中在 `apps/ai_agents/skill_config.py` 的 `DEFAULTS`，三层叠加（低→高）：
+
+1. 代码默认值（skill_config.py）→ 2. `AI_SKILL_PARAMS` 设置（.env JSON，按 skill 名分组）→
+3. 单旋钮环境变量 `AI_SKILL_<SKILL名大写>_<键名大写>`（如 `AI_SKILL_EXAM_GENERATION_TEMPERATURE=0.6`）。
+
+```bash
+# 例：考试出题更发散、上限 20 题、去重更严格
+AI_SKILL_PARAMS={"exam_generation": {"temperature": 0.5, "max_questions": 20, "dedup_threshold": 0.9}}
+# 或单旋钮：AI_SKILL_EXAM_GENERATION_TEMPERATURE=0.6（优先级最高，容器/任务级微调用）
+```
+
+现有旋钮组：`exam_generation`（plan/worker 温度与 token、`max_questions`、`validate_code`、
+`dedup_enabled`/`dedup_threshold`）、`exercise_generation`（温度/token、`max_fix_attempts`、
+`validate_code`、去重）、`course_design`（大纲/单元格/深度内容三档温度与 token、`max_lessons`、
+`max_cells_per_lesson`）。**考题/习题批量生成的去重**：逐题请求注入「已生成题目」负面示例
++ 生成后 SequenceMatcher 相似度过滤（默认阈值 0.85），两层防线解决"同一道题出五六遍"。
 
 ### 5.3 执行与任务
 

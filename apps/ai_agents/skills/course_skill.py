@@ -8,14 +8,12 @@ content). Grounds in ClassLib material when ``source_material`` is provided
 import logging
 
 from ..harness import HarnessCore
+from ..skill_config import skill_params
 from .base import Skill
 
 logger = logging.getLogger(__name__)
 
 #: Hard cap on lessons generated in one run (cost control).
-MAX_LESSONS = 30
-MAX_CELLS_PER_LESSON = 10
-
 _OUTLINE_SYSTEM = (
     'You are an expert curriculum designer for a Python teaching platform. '
     'Return JSON only.')
@@ -38,6 +36,9 @@ class CourseSkill(Skill):
     name = 'course_generation'
     description = 'AI 生成完整课程：大纲 → 章节规划 → 逐单元两阶段内容'
 
+    def __init__(self):
+        self.params = skill_params(self.name)
+
     def run(self, topic, difficulty='beginner', chapter_count=3,
             source_material='', with_content=True) -> dict:
         """Generate a full course structure with optional lesson content.
@@ -57,7 +58,7 @@ class CourseSkill(Skill):
                 f"key points):\n{source_material[:3000]}")
         outline = HarnessCore.call(
             prompt, role='planner', system_prompt=_OUTLINE_SYSTEM,
-            temperature=0.2, json_mode=True)
+            temperature=self.params['outline_temperature'], json_mode=True)
         if isinstance(outline, list):
             outline = {'chapters': outline}
         chapters = outline.get('chapters', [])[:chapter_count]
@@ -68,7 +69,7 @@ class CourseSkill(Skill):
             lessons = chapter.get('lessons', [])
             result_lessons = []
             for lesson_index, lesson in enumerate(lessons):
-                if total_lessons >= MAX_LESSONS:
+                if total_lessons >= self.params['max_lessons']:
                     break
                 cells = []
                 if with_content:
@@ -96,8 +97,9 @@ class CourseSkill(Skill):
         try:
             structure = HarnessCore.call(
                 prompt, role='worker',
-                system_prompt=_OUTLINE_SYSTEM, temperature=0.2,
-                max_tokens=800, json_mode=True)
+                system_prompt=_OUTLINE_SYSTEM,
+                temperature=self.params['content_temperature'],
+                max_tokens=self.params['outline_max_tokens'], json_mode=True)
         except Exception as e:
             logger.warning('cell structure request failed: %s — using markdown fallback', e)
             return self._fallback_cells(lesson_title, difficulty, source_material)
@@ -107,7 +109,7 @@ class CourseSkill(Skill):
         structure = [
             c for c in structure
             if isinstance(c, dict) and c.get('type') in ('text', 'code') and c.get('title')
-        ][:MAX_CELLS_PER_LESSON]
+        ][:self.params['max_cells_per_lesson']]
         if not structure:
             return self._fallback_cells(lesson_title, difficulty, source_material)
 
@@ -134,7 +136,8 @@ class CourseSkill(Skill):
                 prompt, role='worker',
                 system_prompt='You are a Python instructor writing notebook '
                               'cells. Output the cell content only.',
-                temperature=0.3, max_tokens=1200)
+                temperature=self.params['content_temperature'],
+                max_tokens=self.params['content_max_tokens'])
         except Exception as e:
             logger.warning('cell %r failed: %s', cell.get('title'), e)
             return ''
@@ -154,7 +157,8 @@ class CourseSkill(Skill):
             text = HarnessCore.call(
                 prompt, role='worker',
                 system_prompt='You are a Python instructor. Markdown only.',
-                temperature=0.5, max_tokens=3000)
+                temperature=self.params['deep_content_temperature'],
+                max_tokens=self.params['deep_content_max_tokens'])
         except Exception:
             return []
         return _markdown_to_cells(text)

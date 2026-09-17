@@ -525,8 +525,8 @@ def exam_ai_generate(request, pk):
     except (TypeError, ValueError):
         return JsonResponse({'success': False, 'error': '参数无效'}, status=400)
 
-    from apps.ai_agents.skills.exam_skill import MAX_QUESTIONS
-    count = max(1, min(count, MAX_QUESTIONS))
+    from apps.ai_agents.skill_config import skill_params
+    count = max(1, min(count, skill_params('exam_generation')['max_questions']))
     if difficulty not in ('beginner', 'intermediate', 'advanced'):
         difficulty = 'intermediate'
 

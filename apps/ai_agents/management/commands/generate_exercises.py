@@ -41,15 +41,21 @@ class Command(BaseCommand):
                 raise CommandError(f'Course not found: {options["course"]}')
 
         skill = ExerciseSkill()
-        created = validated = 0
+        created = validated = skipped = 0
+        existing = []
         for i in range(count):
             self.stdout.write(f'Generating exercise {i + 1}/{count} on "{topic}"...')
-            result = skill.run(topic, difficulty)
+            result = skill.run(topic, difficulty, existing=existing)
             data = result['exercise']
             test_cases = data.get('test_cases') or []
             if not test_cases:
                 self.stdout.write(self.style.WARNING(
                     f'Exercise {i + 1} has no test cases — skipped'))
+                continue
+            if skill.is_duplicate(data, existing):
+                self.stdout.write(self.style.WARNING(
+                    f'Exercise {i + 1} is a near-duplicate of an earlier one — skipped'))
+                skipped += 1
                 continue
             if result['validated']:
                 validated += 1
@@ -69,6 +75,7 @@ class Command(BaseCommand):
                 test_cases=test_cases,
                 created_by=creator,
             )
+            existing.append(data)
             for hint in data.get('hints', []):
                 Hint.objects.create(
                     exercise=exercise,
@@ -79,7 +86,8 @@ class Command(BaseCommand):
             created += 1
 
         self.stdout.write(self.style.SUCCESS(
-            f'Done. {created}/{count} exercises created ({validated} sandbox-validated).'))
+            f'Done. {created}/{count} exercises created ({validated} sandbox-validated, '
+            f'{skipped} duplicates skipped).'))
 
     def _resolve_creator(self, options):
         username = options['creator']
